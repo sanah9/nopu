@@ -1,0 +1,30 @@
+# Nopu configuration file example
+
+# Redis configuration
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0
+
+# Subscription server configuration
+subscription_server:
+  port: 8080
+  relay_name: "Nopu Relay"
+  relay_description: "Subscription-based message push service"
+  domain: "localhost:8080"
+
+# Listener server configuration
+listener:
+  # List of Nostr Relays to listen to
+  relays:
+    - "wss://relay.damus.io"
+    - "wss://nos.lol"
+    - "wss://relay.nostr.band"
+  
+  # Event types to listen for
+  kinds:
+    - 1  # Short text notes
+    - 7  # Reactions/likes
+  
+  # Batch processing size
+  batch_size: 100 
