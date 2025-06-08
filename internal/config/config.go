@@ -28,6 +28,7 @@ type SubscriptionServerConfig struct {
 	RelayName        string `yaml:"relay_name"`
 	RelayDescription string `yaml:"relay_description"`
 	Domain           string `yaml:"domain"`
+	RelayPrivateKey  string `yaml:"relay_private_key"`
 }
 
 // ListenerConfig listener server configuration
@@ -51,6 +52,7 @@ func Load() (*Config, error) {
 			RelayName:        "Nopu Relay",
 			RelayDescription: "Subscription-based message push service",
 			Domain:           "localhost:8080",
+			RelayPrivateKey:  "",
 		},
 		Listener: ListenerConfig{
 			Relays:    []string{"wss://relay.damus.io", "wss://relay.0xchat.com"},
@@ -124,6 +126,9 @@ func overrideWithEnv(cfg *Config) {
 	}
 	if domain := os.Getenv("DOMAIN"); domain != "" {
 		cfg.SubscriptionServer.Domain = domain
+	}
+	if relayPrivateKey := os.Getenv("RELAY_PRIVATE_KEY"); relayPrivateKey != "" {
+		cfg.SubscriptionServer.RelayPrivateKey = relayPrivateKey
 	}
 
 	// Listener configuration

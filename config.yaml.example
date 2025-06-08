@@ -12,6 +12,7 @@ subscription_server:
   relay_name: "Nopu Relay"
   relay_description: "Subscription-based message push service"
   domain: "localhost:8080"
+  relay_private_key: "f2734cef316db4b9cc718a25b6eaf236840e0d1c09294b8d68f64df8c194fe7c"
 
 # Listener server configuration
 listener:

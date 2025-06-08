@@ -28,9 +28,17 @@ func main() {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	// Generate relay private key
-	relayPrivateKey := nostr.GeneratePrivateKey()
-	relayPublicKey, _ := nostr.GetPublicKey(relayPrivateKey)
+	// Get relay private key from configuration
+	relayPrivateKey := cfg.SubscriptionServer.RelayPrivateKey
+	if relayPrivateKey == "" {
+		log.Fatalf("Relay private key not configured. Please set relay_private_key in config.yaml or RELAY_PRIVATE_KEY environment variable")
+	}
+
+	relayPublicKey, err := nostr.GetPublicKey(relayPrivateKey)
+	if err != nil {
+		log.Fatalf("Invalid relay private key: %v", err)
+	}
+
 	fmt.Printf("Relay Private Key: %s\n", relayPrivateKey)
 	fmt.Printf("Relay Public Key: %s\n", relayPublicKey)
 
