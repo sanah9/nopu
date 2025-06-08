@@ -10,6 +10,7 @@ require (
 	github.com/fiatjaf/relay29 v0.5.1
 	github.com/nbd-wtf/go-nostr v0.42.1
 	github.com/redis/go-redis/v9 v9.3.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

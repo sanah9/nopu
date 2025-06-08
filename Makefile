@@ -35,11 +35,3 @@ test:
 # Clean build files
 clean:
 	rm -rf bin/
-
-# Build Docker image
-docker-build:
-	docker build -t nopu:latest .
-
-# Run Docker container
-docker-run:
-	docker run -p 8080:8080 --env-file .env nopu:latest 
