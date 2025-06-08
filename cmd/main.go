@@ -4,13 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/fiatjaf/eventstore/slicestore"
+	"github.com/fiatjaf/eventstore/lmdb"
 	"github.com/fiatjaf/khatru/policies"
 	"github.com/fiatjaf/relay29"
 	"github.com/fiatjaf/relay29/khatru29"
@@ -35,9 +34,14 @@ func main() {
 	fmt.Printf("Relay Private Key: %s\n", relayPrivateKey)
 	fmt.Printf("Relay Public Key: %s\n", relayPublicKey)
 
-	// Initialize event storage (using in-memory storage for simplicity, database recommended for production)
-	db := &slicestore.SliceStore{}
-	db.Init()
+	// Initialize LMDB storage
+	db := &lmdb.LMDBBackend{
+		Path: "./data/nopu.lmdb",
+	}
+	if err := db.Init(); err != nil {
+		log.Fatalf("Failed to initialize LMDB: %v", err)
+	}
+	defer db.Close()
 
 	// Initialize Redis
 	rdb := redis.NewClient(&redis.Options{
@@ -59,8 +63,6 @@ func main() {
 		SecretKey: relayPrivateKey,
 	})
 
-	// TODO: Set group permission policies (needs adjustment for new API)
-
 	// Configure relay information
 	relay.Info.Name = cfg.SubscriptionServer.RelayName
 	relay.Info.Description = cfg.SubscriptionServer.RelayDescription
@@ -77,11 +79,17 @@ func main() {
 		policies.PreventTimestampsInTheFuture(30*time.Second),
 	)
 
+	// Create context for graceful shutdown
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	// Start event listener
 	eventListener := listener.New(cfg.Listener, rdb)
 	go func() {
 		if err := eventListener.Start(ctx); err != nil {
-			log.Printf("Event listener error: %v", err)
+			if ctx.Err() == nil { // Only log if not cancelled
+				log.Printf("Event listener error: %v", err)
+			}
 		}
 	}()
 
@@ -89,44 +97,32 @@ func main() {
 	eventProcessor := processor.New(rdb, relay)
 	go func() {
 		if err := eventProcessor.Start(ctx); err != nil {
-			log.Printf("Event processor error: %v", err)
+			if ctx.Err() == nil { // Only log if not cancelled
+				log.Printf("Event processor error: %v", err)
+			}
 		}
 	}()
-
-	// Set HTTP routes
-	relay.Router().HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `
-		<h1>Nopu - Subscription-based Message Push Service</h1>
-		<p>Please use a compatible Nostr client to connect</p>
-		<p>WebSocket Address: ws://`+cfg.SubscriptionServer.Domain+`</p>
-		`)
-	})
-
-	// Start HTTP server
-	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.SubscriptionServer.Port),
-		Handler: relay,
-	}
 
 	// Graceful shutdown
-	go func() {
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-		<-sigChan
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-		log.Println("Received shutdown signal, shutting down service...")
+	log.Printf("Nopu service started, relay running...")
 
-		if err := server.Shutdown(context.Background()); err != nil {
-			log.Printf("Server shutdown error: %v", err)
-		}
+	// Wait for shutdown signal
+	<-sigChan
+	log.Println("Received shutdown signal, shutting down service...")
 
-		if err := rdb.Close(); err != nil {
-			log.Printf("Redis close error: %v", err)
-		}
-	}()
+	// Cancel context to stop all goroutines
+	cancel()
 
-	log.Printf("Nopu service started on http://0.0.0.0:%d", cfg.SubscriptionServer.Port)
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("Server startup failed: %v", err)
+	// Give components time to shutdown gracefully
+	time.Sleep(2 * time.Second)
+
+	// Close Redis connection last
+	if err := rdb.Close(); err != nil {
+		log.Printf("Redis close error: %v", err)
 	}
+
+	log.Println("Service shutdown complete")
 }

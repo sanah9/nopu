@@ -1,0 +1,4 @@
+data/nopu.lmdb/data.mdb
+data/nopu.lmdb/lock.mdb
+dump.rdb
+main
