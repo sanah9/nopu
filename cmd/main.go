@@ -39,7 +39,6 @@ func main() {
 		log.Fatalf("Invalid relay private key: %v", err)
 	}
 
-	fmt.Printf("Relay Private Key: %s\n", relayPrivateKey)
 	fmt.Printf("Relay Public Key: %s\n", relayPublicKey)
 
 	// Initialize LMDB storage
@@ -80,8 +79,8 @@ func main() {
 		policies.PreventLargeTags(64),
 		policies.PreventTooManyIndexableTags(6, []int{9005}, nil),
 		policies.RestrictToSpecifiedKinds(
-			9000, 9001, 9002, 9003, 9004, 9005, 9006, 9007, // Group management
-			9021, // Group invitations
+			9000, 9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009, // Group management
+			9021, 9022, 20284, // Group invitations
 		),
 		policies.PreventTimestampsInThePast(60*time.Second),
 		policies.PreventTimestampsInTheFuture(30*time.Second),
