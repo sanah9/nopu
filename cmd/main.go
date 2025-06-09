@@ -85,6 +85,8 @@ func main() {
 		),
 		policies.PreventTimestampsInThePast(60*time.Second),
 		policies.PreventTimestampsInTheFuture(30*time.Second),
+		// Validate group subscription format in about field
+		validateGroupSubscriptionFormat,
 	)
 
 	// Create context for graceful shutdown
@@ -180,9 +182,6 @@ func handleGroupUpdate(ctx context.Context, event *nostr.Event, state *relay29.S
 		return
 	}
 
-	// Wait briefly to ensure relay29.State has been updated
-	time.Sleep(100 * time.Millisecond)
-
 	// Get updated group information from state
 	if group := getGroupFromState(state, groupID); group != nil {
 		nip29Group := convertRelayGroupToNip29Group(group)
@@ -239,4 +238,37 @@ func convertRelayGroupToNip29Group(relayGroup *relay29.Group) *nip29.Group {
 		return nil
 	}
 	return &relayGroup.Group
+}
+
+// validateGroupSubscriptionFormat validates group subscription format in about field
+func validateGroupSubscriptionFormat(ctx context.Context, event *nostr.Event) (reject bool, msg string) {
+	// Only validate group creation and update events that contain subscription information
+	if event.Kind != 9007 && event.Kind != 9002 {
+		return false, "" // Not a group creation or update event, allow it
+	}
+
+	// Extract about field from event content or tags
+	about := extractAboutFieldFromEvent(event)
+	if about == "" {
+		return false, "" // No about field, allow it (will be handled by NIP-29 validation)
+	}
+
+	// Validate REQ format using SubscriptionMatcher's ValidateREQFormat method
+	matcher := processor.NewSubscriptionMatcher()
+	if err := matcher.ValidateREQFormat(about); err != nil {
+		return true, fmt.Sprintf("invalid group subscription format in about field: %v", err)
+	}
+
+	return false, "" // Valid format, allow the event
+}
+
+// extractAboutFieldFromEvent extracts about field from group event tags
+func extractAboutFieldFromEvent(event *nostr.Event) string {
+	// Find about field in tags
+	for _, tag := range event.Tags {
+		if len(tag) >= 2 && tag[0] == "about" {
+			return tag[1]
+		}
+	}
+	return ""
 }

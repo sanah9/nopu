@@ -120,24 +120,6 @@ func (sm *SubscriptionMatcher) doesEventMatchGroupCached(event *nostr.Event, gro
 	return parsed.Filters.Match(event)
 }
 
-// doesEventMatchGroup checks if event matches specific group's subscription conditions
-func (sm *SubscriptionMatcher) doesEventMatchGroup(event *nostr.Event, group *nip29.Group) bool {
-	// Parse subscription request from group's About field
-	filters, err := sm.parseREQFromAbout(group.About)
-	if err != nil {
-		log.Printf("Failed to parse REQ from group %s: %v", group.Address.ID, err)
-		return false
-	}
-
-	// If no valid filters, no match
-	if len(filters) == 0 {
-		return false
-	}
-
-	// Use go-nostr's Match method to check if event matches filters
-	return filters.Match(event)
-}
-
 // parseREQFromAbout parses REQ request from About field and extracts filters
 func (sm *SubscriptionMatcher) parseREQFromAbout(about string) (nostr.Filters, error) {
 	// If About field is empty, return empty filters
