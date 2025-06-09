@@ -14,11 +14,11 @@ import (
 	"github.com/fiatjaf/relay29"
 	"github.com/fiatjaf/relay29/khatru29"
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip29"
 	"github.com/redis/go-redis/v9"
 
 	"nopu/internal/config"
 	"nopu/internal/listener"
+	grouppolicies "nopu/internal/policies"
 	"nopu/internal/processor"
 )
 
@@ -86,7 +86,7 @@ func main() {
 		policies.PreventTimestampsInThePast(60*time.Second),
 		policies.PreventTimestampsInTheFuture(30*time.Second),
 		// Validate group subscription format in about field
-		validateGroupSubscriptionFormat,
+		grouppolicies.ValidateGroupSubscriptionFormat,
 	)
 
 	// Create context for graceful shutdown
@@ -117,11 +117,11 @@ func main() {
 	relay.OnEventSaved = append(relay.OnEventSaved, func(ctx context.Context, event *nostr.Event) {
 		switch event.Kind {
 		case 9007: // Group creation
-			handleGroupCreation(ctx, event, state, eventProcessor)
+			grouppolicies.HandleGroupCreation(ctx, event, state, eventProcessor)
 		case 9002: // Edit group information
-			handleGroupUpdate(ctx, event, state, eventProcessor)
+			grouppolicies.HandleGroupUpdate(ctx, event, state, eventProcessor)
 		case 9008: // Delete group
-			handleGroupDeletion(ctx, event, state, eventProcessor)
+			grouppolicies.HandleGroupDeletion(ctx, event, state, eventProcessor)
 		}
 	})
 
@@ -147,128 +147,4 @@ func main() {
 	}
 
 	log.Println("Service shutdown complete")
-}
-
-// handleGroupCreation handles group creation events (kind 9007)
-func handleGroupCreation(ctx context.Context, event *nostr.Event, state *relay29.State, eventProcessor *processor.Processor) {
-	log.Printf("Handling group creation event: [Kind: %d, ID: %s]", event.Kind, event.ID[:8])
-
-	// Get newly created group from relay29.State
-	groupID := extractGroupIDFromEvent(event)
-	if groupID == "" {
-		log.Printf("Failed to extract group ID from creation event: %s", event.ID[:8])
-		return
-	}
-
-	// Get group information from state
-	if group := getGroupFromState(state, groupID); group != nil {
-		nip29Group := convertRelayGroupToNip29Group(group)
-		if nip29Group != nil {
-			eventProcessor.AddGroup(nip29Group)
-			log.Printf("Successfully added new group to subscription matcher: %s", groupID)
-		}
-	} else {
-		log.Printf("Newly created group not found in relay29.State: %s", groupID)
-	}
-}
-
-// handleGroupUpdate handles group information editing events (kind 9002)
-func handleGroupUpdate(ctx context.Context, event *nostr.Event, state *relay29.State, eventProcessor *processor.Processor) {
-	log.Printf("Handling group update event: [Kind: %d, ID: %s]", event.Kind, event.ID[:8])
-
-	groupID := extractGroupIDFromEvent(event)
-	if groupID == "" {
-		log.Printf("Failed to extract group ID from update event: %s", event.ID[:8])
-		return
-	}
-
-	// Get updated group information from state
-	if group := getGroupFromState(state, groupID); group != nil {
-		nip29Group := convertRelayGroupToNip29Group(group)
-		if nip29Group != nil {
-			eventProcessor.UpdateGroup(nip29Group)
-			log.Printf("Successfully updated group subscription information: %s", groupID)
-		}
-	} else {
-		log.Printf("Group to update not found in relay29.State: %s", groupID)
-	}
-}
-
-// handleGroupDeletion handles group deletion events (kind 9008)
-func handleGroupDeletion(ctx context.Context, event *nostr.Event, state *relay29.State, eventProcessor *processor.Processor) {
-	log.Printf("Handling group deletion event: [Kind: %d, ID: %s]", event.Kind, event.ID[:8])
-
-	groupID := extractGroupIDFromEvent(event)
-	if groupID == "" {
-		log.Printf("Failed to extract group ID from deletion event: %s", event.ID[:8])
-		return
-	}
-
-	// Remove group from subscription matcher
-	eventProcessor.RemoveGroup(groupID)
-	log.Printf("Successfully removed group from subscription matcher: %s", groupID)
-}
-
-// extractGroupIDFromEvent extracts group ID from event
-func extractGroupIDFromEvent(event *nostr.Event) string {
-	for _, tag := range event.Tags {
-		if len(tag) >= 2 && tag[0] == "h" {
-			return tag[1]
-		}
-	}
-	return ""
-}
-
-// getGroupFromState gets group from relay29.State
-func getGroupFromState(state *relay29.State, groupID string) *relay29.Group {
-	var result *relay29.Group
-	state.Groups.Range(func(id string, group *relay29.Group) bool {
-		if id == groupID {
-			result = group
-			return false // stop iteration
-		}
-		return true // continue iteration
-	})
-	return result
-}
-
-// convertRelayGroupToNip29Group converts relay29.Group to nip29.Group
-func convertRelayGroupToNip29Group(relayGroup *relay29.Group) *nip29.Group {
-	if relayGroup == nil {
-		return nil
-	}
-	return &relayGroup.Group
-}
-
-// validateGroupSubscriptionFormat validates group subscription format in about field
-func validateGroupSubscriptionFormat(ctx context.Context, event *nostr.Event) (reject bool, msg string) {
-	// Only validate group creation and update events that contain subscription information
-	if event.Kind != 9007 && event.Kind != 9002 {
-		return false, "" // Not a group creation or update event, allow it
-	}
-
-	// Extract about field from event content or tags
-	about := extractAboutFieldFromEvent(event)
-	if about == "" {
-		return false, "" // No about field, allow it (will be handled by NIP-29 validation)
-	}
-
-	// Validate REQ format using SubscriptionMatcher's ValidateREQFormat method
-	matcher := processor.NewSubscriptionMatcher()
-	if err := matcher.ValidateREQFormat(about); err != nil {
-		return true, fmt.Sprintf("invalid group subscription format in about field: %v", err)
-	}
-
-	return false, "" // Valid format, allow the event
-}
-
-// extractAboutFieldFromEvent extracts about field from group event tags
-func extractAboutFieldFromEvent(event *nostr.Event) string {
-	// Find about field in tags
-	for _, tag := range event.Tags {
-		if len(tag) >= 2 && tag[0] == "about" {
-			return tag[1]
-		}
-	}
-	return ""
 }
