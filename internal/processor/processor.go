@@ -9,27 +9,38 @@ import (
 	"nopu/internal/listener"
 
 	"github.com/fiatjaf/khatru"
+	"github.com/fiatjaf/relay29"
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip29"
 	"github.com/redis/go-redis/v9"
 )
 
 // Processor event processor
 type Processor struct {
-	redis *redis.Client
-	relay *khatru.Relay
+	redis               *redis.Client
+	relay               *khatru.Relay
+	state               *relay29.State
+	subscriptionMatcher *SubscriptionMatcher
 }
 
 // New creates a new processor
-func New(rdb *redis.Client, relay *khatru.Relay) *Processor {
+func New(rdb *redis.Client, relay *khatru.Relay, state *relay29.State) *Processor {
 	return &Processor{
-		redis: rdb,
-		relay: relay,
+		redis:               rdb,
+		relay:               relay,
+		state:               state,
+		subscriptionMatcher: NewSubscriptionMatcher(),
 	}
 }
 
 // Start starts the processor
 func (p *Processor) Start(ctx context.Context) error {
 	log.Println("Starting event processor...")
+
+	// Load all group information on initialization
+	if err := p.loadGroups(ctx); err != nil {
+		log.Printf("Failed to load groups: %v", err)
+	}
 
 	// Create consumer group
 	groupName := "nopu-processors"
@@ -71,6 +82,35 @@ func (p *Processor) Start(ctx context.Context) error {
 	}
 }
 
+// loadGroups loads all group information from relay29.State to subscription matcher
+func (p *Processor) loadGroups(ctx context.Context) error {
+	log.Println("Loading groups from relay29.State for subscription matching...")
+
+	// Get all groups from relay29.State
+	groupCount := 0
+	p.state.Groups.Range(func(groupID string, group *relay29.Group) bool {
+		nip29Group := p.convertRelayGroupToNip29Group(group)
+		if nip29Group != nil {
+			p.subscriptionMatcher.AddGroup(nip29Group)
+			groupCount++
+			log.Printf("Loaded group %s: %s", groupID, nip29Group.Name)
+		}
+		return true // continue iteration
+	})
+
+	log.Printf("Loaded %d groups for subscription matching", groupCount)
+	return nil
+}
+
+// convertRelayGroupToNip29Group converts relay29.Group to nip29.Group
+func (p *Processor) convertRelayGroupToNip29Group(relayGroup *relay29.Group) *nip29.Group {
+	if relayGroup == nil {
+		return nil
+	}
+
+	return &relayGroup.Group
+}
+
 // processMessage processes a single message
 func (p *Processor) processMessage(ctx context.Context, msg redis.XMessage, groupName string) {
 	defer func() {
@@ -91,41 +131,87 @@ func (p *Processor) processMessage(ctx context.Context, msg redis.XMessage, grou
 		return
 	}
 
-	// Check if should forward to group
-	if p.shouldForwardToGroup(&event) {
-		p.forwardToGroup(ctx, &event)
+	// Use subscription matcher to find matching groups
+	matchingGroups := p.subscriptionMatcher.GetMatchingGroups(&event)
+
+	// Log match result (for debugging)
+	p.subscriptionMatcher.LogMatchResult(&event)
+
+	// Forward event to each matching group
+	for _, group := range matchingGroups {
+		if err := p.forwardToGroup(ctx, &event, group); err != nil {
+			log.Printf("Failed to forward event %s to group %s: %v",
+				event.ID[:8], group.Address.ID, err)
+		}
 	}
 }
 
-// shouldForwardToGroup determines whether to forward to group
-func (p *Processor) shouldForwardToGroup(event *nostr.Event) bool {
-	// Simple example: forward kind 1 (short text notes) and kind 7 (reactions)
-	return event.Kind == 1 || event.Kind == 7
-}
+// forwardToGroup forwards event to a specific group
+func (p *Processor) forwardToGroup(ctx context.Context, event *nostr.Event, group *nip29.Group) error {
+	log.Printf("Forwarding event to group %s: [Kind: %d, ID: %s]",
+		group.Address.ID, event.Kind, event.ID[:8])
 
-// forwardToGroup forwards event to group
-func (p *Processor) forwardToGroup(ctx context.Context, event *nostr.Event) {
-	// TODO: Implement subscription matching logic
-	// Here should match corresponding subscription topics based on event content, tags, etc.
-	// Then forward to corresponding NIP-29 groups
-
-	// Example: Create a general group to receive all forwarded messages
-	groupID := "general"
-
-	// Modify event, add group tag
-	forwardedEvent := &nostr.Event{
-		ID:        event.ID,
-		PubKey:    event.PubKey,
-		CreatedAt: event.CreatedAt,
-		Kind:      event.Kind,
-		Tags:      append(event.Tags, nostr.Tag{"h", groupID}), // Add group tag
-		Content:   "[Forwarded] " + event.Content,
+	// Use relay's BroadcastEvent method to publish event
+	if p.state.Relay != nil {
+		p.state.Relay.BroadcastEvent(event)
+		log.Printf("Broadcasted event %s to group %s via relay", event.ID[:8], group.Address.ID)
+	} else {
+		log.Printf("Warning: No relay instance available for broadcasting")
 	}
 
-	// Recalculate signature
-	forwardedEvent.Sign(event.PubKey)
+	return nil
+}
 
-	log.Printf("Forwarding event to group %s: [Kind: %d, ID: %s]", groupID, event.Kind, event.ID[:8])
+// AddGroup adds new group to subscription matcher
+func (p *Processor) AddGroup(group *nip29.Group) {
+	p.subscriptionMatcher.AddGroup(group)
+	log.Printf("Added group %s to subscription matcher", group.Address.ID)
+}
 
-	// Publish event to relay
+// RemoveGroup removes group from subscription matcher
+func (p *Processor) RemoveGroup(groupID string) {
+	p.subscriptionMatcher.RemoveGroup(groupID)
+	log.Printf("Removed group %s from subscription matcher", groupID)
+}
+
+// UpdateGroup updates group's subscription information
+func (p *Processor) UpdateGroup(group *nip29.Group) {
+	p.subscriptionMatcher.UpdateGroup(group)
+	log.Printf("Updated group %s subscription", group.Address.ID)
+}
+
+// RefreshGroupsFromState refreshes groups from relay29.State
+func (p *Processor) RefreshGroupsFromState(ctx context.Context) error {
+	log.Println("Refreshing groups from relay29.State...")
+
+	// Clear existing matcher and reload
+	p.subscriptionMatcher = NewSubscriptionMatcher()
+
+	return p.loadGroups(ctx)
+}
+
+// ValidateGroupSubscription validates group's subscription format
+func (p *Processor) ValidateGroupSubscription(about string) error {
+	return p.subscriptionMatcher.ValidateREQFormat(about)
+}
+
+// GetProcessorStats gets processor statistics
+func (p *Processor) GetProcessorStats() map[string]interface{} {
+	stats := make(map[string]interface{})
+
+	// Get subscription matcher statistics
+	matcherStats := p.subscriptionMatcher.GetGroupStats()
+	stats["subscription_matcher"] = matcherStats
+
+	// Get relay29.State statistics
+	relayStats := make(map[string]interface{})
+	totalGroups := 0
+	p.state.Groups.Range(func(groupID string, group *relay29.Group) bool {
+		totalGroups++
+		return true
+	})
+	relayStats["total_groups_in_state"] = totalGroups
+	stats["relay29_state"] = relayStats
+
+	return stats
 }

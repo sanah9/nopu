@@ -64,7 +64,7 @@ func main() {
 	}
 
 	// Initialize NIP-29 relay
-	relay, _ := khatru29.Init(relay29.Options{
+	relay, state := khatru29.Init(relay29.Options{
 		Domain:    cfg.SubscriptionServer.Domain,
 		DB:        db,
 		SecretKey: relayPrivateKey,
@@ -101,7 +101,7 @@ func main() {
 	}()
 
 	// Start event processor
-	eventProcessor := processor.New(rdb, relay)
+	eventProcessor := processor.New(rdb, relay, state)
 	go func() {
 		if err := eventProcessor.Start(ctx); err != nil {
 			if ctx.Err() == nil { // Only log if not cancelled
