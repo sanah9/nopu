@@ -13,7 +13,9 @@ import (
 )
 
 const (
-	EventStreamKey = "nopu:events"
+	EventStreamKey    = "nopu:events"
+	EventDedupeSetKey = "nopu:events:deduped"
+	DedupeExpiration  = 24 * time.Hour // Expiration time for deduplication cache
 )
 
 // Listener event listener
@@ -97,6 +99,27 @@ func (l *Listener) listenToRelay(ctx context.Context, relay *nostr.Relay, filter
 
 // handleEvent handles received events
 func (l *Listener) handleEvent(ctx context.Context, event *nostr.Event) {
+	// Check if event ID has already been processed (deduplication)
+	isDupe, err := l.redis.SIsMember(ctx, EventDedupeSetKey, event.ID).Result()
+	if err != nil {
+		log.Printf("Failed to check event deduplication: %v", err)
+		return
+	}
+
+	if isDupe {
+		log.Printf("Duplicate event filtered [Kind: %d, ID: %s]", event.Kind, event.ID[:8])
+		return
+	}
+
+	// Mark event ID as processed
+	pipe := l.redis.Pipeline()
+	pipe.SAdd(ctx, EventDedupeSetKey, event.ID)
+	pipe.Expire(ctx, EventDedupeSetKey, DedupeExpiration)
+	if _, err := pipe.Exec(ctx); err != nil {
+		log.Printf("Failed to mark event as processed: %v", err)
+		return
+	}
+
 	// Serialize event
 	eventData, err := json.Marshal(event)
 	if err != nil {

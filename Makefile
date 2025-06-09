@@ -12,8 +12,6 @@ help:
 	@echo "  run          Run service"
 	@echo "  test         Run tests"
 	@echo "  clean        Clean build files"
-	@echo "  docker-build Build Docker image"
-	@echo "  docker-run   Run Docker container"
 
 # Install dependencies
 deps:

@@ -33,13 +33,6 @@ redis-server
 ```bash
 # Copy configuration file
 cp config.yaml.example config.yaml
-
-# Or use environment variables
-export REDIS_ADDR="localhost:6379"
-export RELAY_PORT="8080"
-export DOMAIN="localhost:8080"
-export LISTEN_RELAYS="wss://relay.damus.io,wss://nos.lol"
-export LISTEN_KINDS="1,7"
 ```
 
 ### 3. Start Service
