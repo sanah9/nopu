@@ -3,6 +3,7 @@ package processor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"time"
 
@@ -21,15 +22,17 @@ type Processor struct {
 	relay               *khatru.Relay
 	state               *relay29.State
 	subscriptionMatcher *SubscriptionMatcher
+	relayPrivateKey     string
 }
 
 // New creates a new processor
-func New(rdb *redis.Client, relay *khatru.Relay, state *relay29.State) *Processor {
+func New(rdb *redis.Client, relay *khatru.Relay, state *relay29.State, relayPrivateKey string) *Processor {
 	return &Processor{
 		redis:               rdb,
 		relay:               relay,
 		state:               state,
 		subscriptionMatcher: NewSubscriptionMatcher(),
+		relayPrivateKey:     relayPrivateKey,
 	}
 }
 
@@ -151,10 +154,33 @@ func (p *Processor) forwardToGroup(ctx context.Context, event *nostr.Event, grou
 	log.Printf("Forwarding event to group %s: [Kind: %d, ID: %s]",
 		group.Address.ID, event.Kind, event.ID[:8])
 
-	// Use relay's BroadcastEvent method to publish event
+	// Serialize original event to JSON
+	eventJSON, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("failed to serialize event to JSON: %w", err)
+	}
+
+	// Create kind 20284 event
+	kind20284Event := &nostr.Event{
+		Kind:      20284,
+		Content:   string(eventJSON),
+		CreatedAt: nostr.Now(),
+		Tags: nostr.Tags{
+			// Add group ID as h tag
+			{"h", group.Address.ID},
+		},
+	}
+
+	// Sign the event with relay private key
+	if err := kind20284Event.Sign(p.relayPrivateKey); err != nil {
+		return fmt.Errorf("failed to sign kind 20284 event: %w", err)
+	}
+
+	// Broadcast the wrapped event to the group
 	if p.state.Relay != nil {
-		p.state.Relay.BroadcastEvent(event)
-		log.Printf("Broadcasted event %s to group %s via relay", event.ID[:8], group.Address.ID)
+		p.state.Relay.BroadcastEvent(kind20284Event)
+		log.Printf("Forwarded event %s to group %s as kind 20284 event %s",
+			event.ID[:8], group.Address.ID, kind20284Event.ID[:8])
 	} else {
 		log.Printf("Warning: No relay instance available for broadcasting")
 	}

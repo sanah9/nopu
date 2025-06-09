@@ -104,7 +104,7 @@ func main() {
 	}()
 
 	// Start event processor
-	eventProcessor := processor.New(rdb, relay, state)
+	eventProcessor := processor.New(rdb, relay, state, relayPrivateKey)
 	go func() {
 		if err := eventProcessor.Start(ctx); err != nil {
 			if ctx.Err() == nil { // Only log if not cancelled
