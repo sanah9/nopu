@@ -3,3 +3,4 @@ data/nopu.lmdb/lock.mdb
 dump.rdb
 main
 config.yaml
+/logs

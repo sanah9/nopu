@@ -24,7 +24,9 @@ build:
 
 # Run service
 run:
-	go run cmd/main.go
+	@mkdir -p logs
+	@echo "Starting service, logs output to logs/nopu.log"
+	go run cmd/main.go 2>&1 | tee logs/nopu.log
 
 # Run tests
 test:
@@ -33,3 +35,4 @@ test:
 # Clean build files
 clean:
 	rm -rf bin/
+	rm -rf logs/

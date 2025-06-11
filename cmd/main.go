@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,6 +15,7 @@ import (
 	"github.com/fiatjaf/relay29"
 	"github.com/fiatjaf/relay29/khatru29"
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip29"
 	"github.com/redis/go-redis/v9"
 
 	"nopu/internal/config"
@@ -69,6 +71,11 @@ func main() {
 		Domain:    cfg.SubscriptionServer.Domain,
 		DB:        db,
 		SecretKey: relayPrivateKey,
+		DefaultRoles: []*nip29.Role{
+			{Name: "admin", Description: "the group's admin"},
+			{Name: "moderator", Description: "the group's moderator"},
+		},
+		GroupCreatorDefaultRole: &nip29.Role{Name: "admin", Description: "the group's admin"},
 	})
 
 	// Configure relay information
@@ -124,6 +131,15 @@ func main() {
 			grouppolicies.HandleGroupDeletion(ctx, event, state, eventProcessor)
 		}
 	})
+
+	// Start HTTP server for relay
+	go func() {
+		addr := fmt.Sprintf(":%d", cfg.SubscriptionServer.Port)
+		log.Printf("Starting HTTP server on %s", addr)
+		if err := http.ListenAndServe(addr, relay); err != nil {
+			log.Fatalf("HTTP server failed: %v", err)
+		}
+	}()
 
 	// Graceful shutdown
 	sigChan := make(chan os.Signal, 1)
