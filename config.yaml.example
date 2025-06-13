@@ -28,4 +28,8 @@ listener:
     - 7  # Reactions/likes
   
   # Batch processing size
-  batch_size: 100 
+  batch_size: 100
+
+  # Reconnection settings
+  reconnect_delay: 5s  # Reconnection delay time, supported units: ms, s, m, h
+  max_retries: 0      # Maximum retry attempts, 0 means infinite retries 

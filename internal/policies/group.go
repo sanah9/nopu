@@ -16,22 +16,22 @@ import (
 func HandleGroupCreation(ctx context.Context, event *nostr.Event, state *relay29.State, eventProcessor *processor.Processor) {
 	log.Printf("Handling group creation event: [Kind: %d, ID: %s]", event.Kind, event.ID[:8])
 
-	// Get group ID from the newly created event
 	groupID := ExtractGroupIDFromEvent(event)
 	if groupID == "" {
 		log.Printf("Failed to extract group ID from creation event: %s", event.ID[:8])
 		return
 	}
 
-	// Get group information from state
+	aboutField := ExtractAboutFieldFromEvent(event)
 	if group := GetGroupFromState(state, groupID); group != nil {
 		nip29Group := ConvertRelayGroupToNip29Group(group)
 		if nip29Group != nil {
+			if aboutField != "" {
+				nip29Group.About = aboutField
+			}
 			eventProcessor.AddGroup(nip29Group)
 			log.Printf("Successfully added new group to subscription matcher: %s", groupID)
 		}
-	} else {
-		log.Printf("Newly created group not found in relay29.State: %s", groupID)
 	}
 }
 
@@ -45,15 +45,16 @@ func HandleGroupUpdate(ctx context.Context, event *nostr.Event, state *relay29.S
 		return
 	}
 
-	// Get updated group information from state
+	aboutField := ExtractAboutFieldFromEvent(event)
 	if group := GetGroupFromState(state, groupID); group != nil {
 		nip29Group := ConvertRelayGroupToNip29Group(group)
 		if nip29Group != nil {
+			if aboutField != "" {
+				nip29Group.About = aboutField
+			}
 			eventProcessor.UpdateGroup(nip29Group)
 			log.Printf("Successfully updated group subscription information: %s", groupID)
 		}
-	} else {
-		log.Printf("Group to update not found in relay29.State: %s", groupID)
 	}
 }
 

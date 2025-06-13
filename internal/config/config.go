@@ -4,6 +4,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -33,9 +34,11 @@ type SubscriptionServerConfig struct {
 
 // ListenerConfig listener server configuration
 type ListenerConfig struct {
-	Relays    []string `yaml:"relays"`
-	Kinds     []int    `yaml:"kinds"`
-	BatchSize int      `yaml:"batch_size"`
+	Relays         []string      `yaml:"relays"`
+	Kinds          []int         `yaml:"kinds"`
+	BatchSize      int           `yaml:"batch_size"`
+	ReconnectDelay time.Duration `yaml:"reconnect_delay"`
+	MaxRetries     int           `yaml:"max_retries"`
 }
 
 // Load loads configuration
@@ -55,9 +58,11 @@ func Load() (*Config, error) {
 			RelayPrivateKey:  "",
 		},
 		Listener: ListenerConfig{
-			Relays:    []string{"wss://relay.damus.io", "wss://relay.0xchat.com"},
-			Kinds:     []int{1, 7},
-			BatchSize: 100,
+			Relays:         []string{"wss://relay.damus.io", "wss://relay.0xchat.com"},
+			Kinds:          []int{1, 7},
+			BatchSize:      100,
+			ReconnectDelay: 5 * time.Second,
+			MaxRetries:     0,
 		},
 	}
 
