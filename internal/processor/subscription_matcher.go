@@ -76,6 +76,7 @@ func (sm *SubscriptionMatcher) parseAndCacheSubscription(group *nip29.Group) {
 		log.Printf("Failed to parse REQ for group %s: %v", group.Address.ID, err)
 	} else {
 		parsed.Filters = filters
+		log.Printf("Successfully parsed REQ for group %s: %v", group.Address.ID, filters)
 	}
 
 	sm.parsedSubscriptions[group.Address.ID] = parsed

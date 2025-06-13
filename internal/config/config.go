@@ -14,6 +14,7 @@ type Config struct {
 	Redis              RedisConfig              `yaml:"redis"`
 	SubscriptionServer SubscriptionServerConfig `yaml:"subscription_server"`
 	Listener           ListenerConfig           `yaml:"listener"`
+	Apns               ApnsConfig               `yaml:"apns"`
 }
 
 // RedisConfig Redis configuration
@@ -41,6 +42,15 @@ type ListenerConfig struct {
 	MaxRetries     int           `yaml:"max_retries"`
 }
 
+// ApnsConfig contains APNs push configuration
+type ApnsConfig struct {
+	KeyPath    string `yaml:"key_path"`   // .p8 private key file path
+	KeyID      string `yaml:"key_id"`     // Apple Developer Key ID
+	TeamID     string `yaml:"team_id"`    // Apple Developer Team ID
+	BundleID   string `yaml:"bundle_id"`  // Application bundle identifier (Topic)
+	Production bool   `yaml:"production"` // Use production environment, false for sandbox
+}
+
 // Load loads configuration
 func Load() (*Config, error) {
 	// Default configuration
@@ -63,6 +73,13 @@ func Load() (*Config, error) {
 			BatchSize:      100,
 			ReconnectDelay: 5 * time.Second,
 			MaxRetries:     0,
+		},
+		Apns: ApnsConfig{
+			KeyPath:    "",
+			KeyID:      "",
+			TeamID:     "",
+			BundleID:   "",
+			Production: false,
 		},
 	}
 
@@ -145,6 +162,25 @@ func overrideWithEnv(cfg *Config) {
 	}
 	if batchSize := getEnvInt("BATCH_SIZE", cfg.Listener.BatchSize); batchSize != cfg.Listener.BatchSize {
 		cfg.Listener.BatchSize = batchSize
+	}
+
+	// Override APNS configuration with environment variables
+	if keyPath := os.Getenv("APNS_KEY_PATH"); keyPath != "" {
+		cfg.Apns.KeyPath = keyPath
+	}
+	if keyID := os.Getenv("APNS_KEY_ID"); keyID != "" {
+		cfg.Apns.KeyID = keyID
+	}
+	if teamID := os.Getenv("APNS_TEAM_ID"); teamID != "" {
+		cfg.Apns.TeamID = teamID
+	}
+	if bundleID := os.Getenv("APNS_BUNDLE_ID"); bundleID != "" {
+		cfg.Apns.BundleID = bundleID
+	}
+	if productionStr := os.Getenv("APNS_PRODUCTION"); productionStr != "" {
+		if prod, err := strconv.ParseBool(productionStr); err == nil {
+			cfg.Apns.Production = prod
+		}
 	}
 }
 

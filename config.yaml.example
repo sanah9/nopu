@@ -33,3 +33,11 @@ listener:
   # Reconnection settings
   reconnect_delay: 5s  # Reconnection delay time, supported units: ms, s, m, h
   max_retries: 0      # Maximum retry attempts, 0 means infinite retries 
+
+# APNs push configuration
+apns:
+  key_path: "path/to/AuthKey_PXXXXXX.p8"  # Apple .p8 private key path
+  key_id: "ABCD1234EF"                    # Key ID
+  team_id: "TEAMID1234"                   # Team ID
+  bundle_id: "com.example.app"            # App Bundle ID (Topic)
+  production: false                        # Use production environment 
