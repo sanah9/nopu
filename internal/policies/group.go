@@ -22,13 +22,9 @@ func HandleGroupCreation(ctx context.Context, event *nostr.Event, state *relay29
 		return
 	}
 
-	aboutField := ExtractAboutFieldFromEvent(event)
 	if group := GetGroupFromState(state, groupID); group != nil {
 		nip29Group := ConvertRelayGroupToNip29Group(group)
 		if nip29Group != nil {
-			if aboutField != "" {
-				nip29Group.About = aboutField
-			}
 			eventProcessor.AddGroup(nip29Group)
 			log.Printf("Successfully added new group to subscription matcher: %s", groupID)
 		}
@@ -37,7 +33,7 @@ func HandleGroupCreation(ctx context.Context, event *nostr.Event, state *relay29
 
 // HandleGroupUpdate handles group information editing events (kind 9002)
 func HandleGroupUpdate(ctx context.Context, event *nostr.Event, state *relay29.State, eventProcessor *processor.Processor) {
-	log.Printf("Handling group update event: [Kind: %d, ID: %s]", event.Kind, event.ID[:8])
+	log.Printf("Received group update event: [Kind: %d, ID: %s]", event.Kind, event.ID[:8])
 
 	groupID := ExtractGroupIDFromEvent(event)
 	if groupID == "" {
@@ -46,6 +42,8 @@ func HandleGroupUpdate(ctx context.Context, event *nostr.Event, state *relay29.S
 	}
 
 	aboutField := ExtractAboutFieldFromEvent(event)
+	log.Printf("Group[%s] updating subscription rules: %s", groupID, aboutField)
+
 	if group := GetGroupFromState(state, groupID); group != nil {
 		nip29Group := ConvertRelayGroupToNip29Group(group)
 		if nip29Group != nil {
@@ -53,7 +51,7 @@ func HandleGroupUpdate(ctx context.Context, event *nostr.Event, state *relay29.S
 				nip29Group.About = aboutField
 			}
 			eventProcessor.UpdateGroup(nip29Group)
-			log.Printf("Successfully updated group subscription information: %s", groupID)
+			log.Printf("Successfully updated group subscription info: %s", groupID)
 		}
 	}
 }
@@ -106,15 +104,15 @@ func ConvertRelayGroupToNip29Group(relayGroup *relay29.Group) *nip29.Group {
 
 // ValidateGroupSubscriptionFormat validates group subscription format in about field
 func ValidateGroupSubscriptionFormat(ctx context.Context, event *nostr.Event) (reject bool, msg string) {
-	// Only validate group creation and update events that contain subscription information
-	if event.Kind != 9007 && event.Kind != 9002 {
-		return false, "" // Not a group creation or update event, allow it
+	// Only validate group update events that contain subscription information
+	if event.Kind != 9002 {
+		return false, "" // Not a group update event, allow it
 	}
 
 	// Extract about field from event content or tags
 	about := ExtractAboutFieldFromEvent(event)
 	if about == "" {
-		return false, "" // No about field, allow it (will be handled by NIP-29 validation)
+		return false, "" // No about field, allow it
 	}
 
 	// Validate REQ format using SubscriptionMatcher's ValidateREQFormat method

@@ -42,6 +42,11 @@ func main() {
 		log.Fatalf("Invalid relay private key: %v", err)
 	}
 
+	var (
+		kingRole   = &nip29.Role{Name: "king", Description: "the group's max top admin"}
+		bishopRole = &nip29.Role{Name: "bishop", Description: "the group's noble servant"}
+	)
+
 	fmt.Printf("Relay Public Key: %s\n", relayPublicKey)
 
 	// Initialize LMDB storage
@@ -68,15 +73,33 @@ func main() {
 
 	// Initialize NIP-29 relay
 	relay, state := khatru29.Init(relay29.Options{
-		Domain:    cfg.SubscriptionServer.Domain,
-		DB:        db,
-		SecretKey: relayPrivateKey,
-		DefaultRoles: []*nip29.Role{
-			{Name: "admin", Description: "the group's admin"},
-			{Name: "moderator", Description: "the group's moderator"},
-		},
-		GroupCreatorDefaultRole: &nip29.Role{Name: "admin", Description: "the group's admin"},
+		Domain:                  cfg.SubscriptionServer.Domain,
+		DB:                      db,
+		SecretKey:               relayPrivateKey,
+		DefaultRoles:            []*nip29.Role{kingRole, bishopRole},
+		GroupCreatorDefaultRole: kingRole,
 	})
+
+	// setup group-related restrictions
+	state.AllowAction = func(ctx context.Context, group nip29.Group, role *nip29.Role, action relay29.Action) bool {
+		if role == kingRole {
+			// owners can do everything
+			return true
+		}
+		if role == bishopRole {
+			// admins can invite new users, delete people and messages
+			switch action.(type) {
+			case relay29.RemoveUser:
+				return true
+			case relay29.DeleteEvent:
+				return true
+			case relay29.PutUser:
+				return true
+			}
+		}
+		// no one else can do anything else
+		return false
+	}
 
 	// Configure relay information
 	relay.Info.Name = cfg.SubscriptionServer.RelayName
