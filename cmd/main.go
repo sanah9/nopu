@@ -21,6 +21,7 @@ import (
 	"nopu/internal/config"
 	"nopu/internal/listener"
 	grouppolicies "nopu/internal/policies"
+	"nopu/internal/presence"
 	"nopu/internal/processor"
 )
 
@@ -79,6 +80,9 @@ func main() {
 		DefaultRoles:            []*nip29.Role{kingRole, bishopRole},
 		GroupCreatorDefaultRole: kingRole,
 	})
+
+	// Install presence tracking hooks
+	presence.SetupPresenceHooks(relay)
 
 	// setup group-related restrictions
 	state.AllowAction = func(ctx context.Context, group nip29.Group, role *nip29.Role, action relay29.Action) bool {
