@@ -193,7 +193,7 @@ func (p *Processor) forwardToGroup(ctx context.Context, event *nostr.Event, grou
 		}
 	} else {
 		log.Printf("[offline] Group %s seems offline, sending APNs push", group.Address.ID)
-		p.pushNotification(ctx, group, kind20284Event)
+		p.pushNotification(ctx, group, event, kind20284Event)
 	}
 
 	return nil
@@ -208,7 +208,7 @@ func (p *Processor) isFirstMemberOnline(group *nip29.Group) bool {
 }
 
 // pushNotification sends an APNs notification to offline members
-func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, wrappedEvent *nostr.Event) {
+func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, originalEvent *nostr.Event, wrappedEvent *nostr.Event) {
 	if p.apns == nil {
 		log.Printf("APNS client not configured, skip push")
 		return
@@ -247,14 +247,34 @@ func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, wr
 
 	title := group.Name
 	if title == "" {
-		title = "New Message"
+		title = "Nopu"
 	}
 
+	body := p.alertBodyForKind(originalEvent.Kind)
+
 	// Send push with alert and badge=1
-	if resp, err := p.apns.Push(ctx, deviceToken, title, "You have a new message", custom); err != nil {
+	if resp, err := p.apns.Push(ctx, deviceToken, title, body, custom); err != nil {
 		log.Printf("APNS push error to %s: %v (resp=%v)", deviceToken, err, resp)
 	} else {
 		log.Printf("APNS push sent to %s (status=%v)", deviceToken, resp.StatusCode)
+	}
+}
+
+// alertBodyForKind returns a human-readable message for different event kinds.
+func (p *Processor) alertBodyForKind(kind int) string {
+	switch kind {
+	case 1:
+		return "New note message"
+	case 6:
+		return "New repost message"
+	case 7:
+		return "New reaction message"
+	case 9735:
+		return "New zap message"
+	case 1059:
+		return "New direct message"
+	default:
+		return "You have a new message"
 	}
 }
 
