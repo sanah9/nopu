@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"nopu/internal/listener"
+	"nopu/internal/presence"
+	"nopu/internal/push"
 
 	"github.com/fiatjaf/khatru"
 	"github.com/fiatjaf/relay29"
@@ -23,16 +25,18 @@ type Processor struct {
 	state               *relay29.State
 	subscriptionMatcher *SubscriptionMatcher
 	relayPrivateKey     string
+	apns                *push.APNSClient
 }
 
 // New creates a new processor
-func New(rdb *redis.Client, relay *khatru.Relay, state *relay29.State, relayPrivateKey string) *Processor {
+func New(rdb *redis.Client, relay *khatru.Relay, state *relay29.State, relayPrivateKey string, apns *push.APNSClient) *Processor {
 	return &Processor{
 		redis:               rdb,
 		relay:               relay,
 		state:               state,
 		subscriptionMatcher: NewSubscriptionMatcher(),
 		relayPrivateKey:     relayPrivateKey,
+		apns:                apns,
 	}
 }
 
@@ -176,16 +180,82 @@ func (p *Processor) forwardToGroup(ctx context.Context, event *nostr.Event, grou
 		return fmt.Errorf("failed to sign kind 20284 event: %w", err)
 	}
 
-	// Broadcast the wrapped event to the group
-	if p.state.Relay != nil {
-		p.state.Relay.BroadcastEvent(kind20284Event)
-		log.Printf("Forwarded event %s to group %s as kind 20284 event %s",
-			event.ID[:8], group.Address.ID, kind20284Event.ID[:8])
+	// Decide whether to broadcast or push based on online presence
+	online := p.isFirstMemberOnline(group)
+
+	if online {
+		if p.state.Relay != nil {
+			p.state.Relay.BroadcastEvent(kind20284Event)
+			log.Printf("[online] Forwarded event %s to group %s as kind 20284 event %s",
+				event.ID[:8], group.Address.ID, kind20284Event.ID[:8])
+		} else {
+			log.Printf("Warning: No relay instance available for broadcasting")
+		}
 	} else {
-		log.Printf("Warning: No relay instance available for broadcasting")
+		log.Printf("[offline] Group %s seems offline, sending APNs push", group.Address.ID)
+		p.pushNotification(ctx, group, kind20284Event)
 	}
 
 	return nil
+}
+
+// isFirstMemberOnline checks if the first member of the group is currently online using presence tracking
+func (p *Processor) isFirstMemberOnline(group *nip29.Group) bool {
+	for member := range group.Members {
+		return presence.IsOnline(member)
+	}
+	return false
+}
+
+// pushNotification sends an APNs notification to offline members
+func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, wrappedEvent *nostr.Event) {
+	if p.apns == nil {
+		log.Printf("APNS client not configured, skip push")
+		return
+	}
+
+	// Obtain subscription ID (used here as device token) from cached parsed subscription
+	var deviceToken string
+	if parsed, ok := p.subscriptionMatcher.parsedSubscriptions[group.Address.ID]; ok {
+		deviceToken = parsed.SubscriptionID
+	}
+
+	if deviceToken == "" {
+		log.Printf("No subscription ID (device token) found for group %s, skip push", group.Address.ID)
+		return
+	}
+
+	// Serialize wrapped event as JSON string
+	dataBytes, err := json.Marshal(wrappedEvent)
+	if err != nil {
+		log.Printf("Failed to marshal wrapped event for push: %v", err)
+		return
+	}
+
+	// APNs payload must be ≤ 4 KB in total. Leave room for the `aps` fields, so cap custom data around 3 KB.
+	const maxCustomBytes = 3000
+
+	custom := map[string]interface{}{
+		"badge": 1,
+	}
+
+	if len(dataBytes) <= maxCustomBytes {
+		custom["event"] = string(dataBytes)
+	} else {
+		custom["eventid"] = wrappedEvent.ID
+	}
+
+	title := group.Name
+	if title == "" {
+		title = "New Message"
+	}
+
+	// Send push with alert and badge=1
+	if resp, err := p.apns.Push(ctx, deviceToken, title, "You have a new message", custom); err != nil {
+		log.Printf("APNS push error to %s: %v (resp=%v)", deviceToken, err, resp)
+	} else {
+		log.Printf("APNS push sent to %s (status=%v)", deviceToken, resp.StatusCode)
+	}
 }
 
 // AddGroup adds new group to subscription matcher

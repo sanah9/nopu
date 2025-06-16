@@ -13,9 +13,10 @@ import (
 
 // ParsedGroupSubscription stores parsed group subscription information
 type ParsedGroupSubscription struct {
-	GroupID    string
-	Filters    nostr.Filters
-	ParseError error
+	GroupID        string
+	SubscriptionID string
+	Filters        nostr.Filters
+	ParseError     error
 }
 
 // SubscriptionMatcher handles event matching with group subscriptions
@@ -70,12 +71,13 @@ func (sm *SubscriptionMatcher) parseAndCacheSubscription(group *nip29.Group) {
 		GroupID: group.Address.ID,
 	}
 
-	filters, err := sm.parseREQFromAbout(group.About)
+	filters, subID, err := sm.parseREQFromAbout(group.About)
 	if err != nil {
 		parsed.ParseError = err
 		log.Printf("Failed to parse REQ for group %s: %v", group.Address.ID, err)
 	} else {
 		parsed.Filters = filters
+		parsed.SubscriptionID = subID
 		log.Printf("Successfully parsed REQ for group %s: %v", group.Address.ID, filters)
 	}
 
@@ -121,30 +123,35 @@ func (sm *SubscriptionMatcher) doesEventMatchGroupCached(event *nostr.Event, gro
 	return parsed.Filters.Match(event)
 }
 
-// parseREQFromAbout parses REQ request from About field and extracts filters
-func (sm *SubscriptionMatcher) parseREQFromAbout(about string) (nostr.Filters, error) {
+// parseREQFromAbout parses REQ request from About field and extracts subscription ID and filters
+func (sm *SubscriptionMatcher) parseREQFromAbout(about string) (nostr.Filters, string, error) {
 	// If About field is empty, return empty filters
 	if about == "" {
-		return nil, fmt.Errorf("empty about field")
+		return nil, "", fmt.Errorf("empty about field")
 	}
 
 	// Try to parse JSON format REQ request
 	var reqArray []interface{}
 	if err := json.Unmarshal([]byte(about), &reqArray); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON from about field: %w", err)
+		return nil, "", fmt.Errorf("failed to parse JSON from about field: %w", err)
 	}
 
 	// Check if it's valid REQ format: ["REQ", <subscription_id>, <filters1>, <filters2>, ...]
 	if len(reqArray) < 3 {
-		return nil, fmt.Errorf("invalid REQ format: need at least 3 elements")
+		return nil, "", fmt.Errorf("invalid REQ format: need at least 3 elements")
 	}
 
 	// Check if first element is "REQ"
 	if reqType, ok := reqArray[0].(string); !ok || reqType != "REQ" {
-		return nil, fmt.Errorf("invalid REQ format: first element must be 'REQ'")
+		return nil, "", fmt.Errorf("invalid REQ format: first element must be 'REQ'")
 	}
 
-	// Second element is subscription_id, we don't need to use it for now
+	// Second element is subscription_id
+	subID := ""
+	if sid, ok := reqArray[1].(string); ok {
+		subID = sid
+	}
+
 	// From third element onwards are filters
 	var filters nostr.Filters
 	for i := 2; i < len(reqArray); i++ {
@@ -163,12 +170,12 @@ func (sm *SubscriptionMatcher) parseREQFromAbout(about string) (nostr.Filters, e
 		filters = append(filters, filter)
 	}
 
-	return filters, nil
+	return filters, subID, nil
 }
 
 // ValidateREQFormat validates if REQ format in About field is correct
 func (sm *SubscriptionMatcher) ValidateREQFormat(about string) error {
-	_, err := sm.parseREQFromAbout(about)
+	_, _, err := sm.parseREQFromAbout(about)
 	return err
 }
 

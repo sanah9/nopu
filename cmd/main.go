@@ -23,6 +23,7 @@ import (
 	grouppolicies "nopu/internal/policies"
 	"nopu/internal/presence"
 	"nopu/internal/processor"
+	"nopu/internal/push"
 )
 
 func main() {
@@ -137,8 +138,14 @@ func main() {
 		}
 	}()
 
+	// Create APNS client
+	apnsClient, err := push.NewAPNSClient(cfg.Apns)
+	if err != nil {
+		log.Printf("Failed to initialize APNS client: %v", err)
+	}
+
 	// Start event processor
-	eventProcessor := processor.New(rdb, relay, state, relayPrivateKey)
+	eventProcessor := processor.New(rdb, relay, state, relayPrivateKey, apnsClient)
 	go func() {
 		if err := eventProcessor.Start(ctx); err != nil {
 			if ctx.Err() == nil { // Only log if not cancelled

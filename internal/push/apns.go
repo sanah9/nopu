@@ -3,6 +3,7 @@ package push
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/sideshow/apns2"
@@ -59,6 +60,22 @@ func (a *APNSClient) Push(ctx context.Context, deviceToken, alertTitle, alertBod
 	}
 
 	pld := payload.NewPayload().AlertTitle(alertTitle).AlertBody(alertBody).Sound("default")
+
+	// extract badge if provided
+	if badgeVal, ok := customData["badge"]; ok {
+		switch b := badgeVal.(type) {
+		case int:
+			pld.Badge(b)
+		case int32:
+			pld.Badge(int(b))
+		case int64:
+			pld.Badge(int(b))
+		case float64:
+			pld.Badge(int(b))
+		}
+		delete(customData, "badge")
+	}
+
 	for k, v := range customData {
 		pld.Custom(k, v)
 	}
