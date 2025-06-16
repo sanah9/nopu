@@ -3,7 +3,6 @@ package push
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/sideshow/apns2"
@@ -59,7 +58,7 @@ func (a *APNSClient) Push(ctx context.Context, deviceToken, alertTitle, alertBod
 		return nil, fmt.Errorf("device token is empty")
 	}
 
-	pld := payload.NewPayload().AlertTitle(alertTitle).AlertBody(alertBody).Sound("default")
+	pld := payload.NewPayload().AlertTitle(alertTitle).AlertBody(alertBody).Sound("default").ContentAvailable()
 
 	// extract badge if provided
 	if badgeVal, ok := customData["badge"]; ok {
