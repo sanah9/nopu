@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"nopu/internal/listener"
@@ -250,32 +251,107 @@ func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, or
 		title = "Nopu"
 	}
 
-	body := p.alertBodyForKind(originalEvent.Kind)
+	body := p.alertBodyForKind(originalEvent.Kind, originalEvent)
 
 	// Send push with alert and badge=1
 	if resp, err := p.apns.Push(ctx, deviceToken, title, body, custom); err != nil {
-		log.Printf("APNS push error to %s: %v (resp=%v)", deviceToken, err, resp)
-	} else {
-		log.Printf("APNS push sent to %s (status=%v)", deviceToken, resp.StatusCode)
+		log.Printf("APNS push error to %s: %v", deviceToken, err)
+	} else if resp != nil && resp.StatusCode != 200 {
+		log.Printf("APNS push non-200 (%d %s) to %s", resp.StatusCode, resp.Reason, deviceToken)
 	}
 }
 
 // alertBodyForKind returns a human-readable message for different event kinds.
-func (p *Processor) alertBodyForKind(kind int) string {
-	switch kind {
-	case 1:
-		return "New note message"
-	case 6:
-		return "New repost message"
-	case 7:
-		return "New reaction message"
-	case 9735:
-		return "New zap message"
-	case 1059:
-		return "New direct message"
-	default:
-		return "You have a new message"
+func (p *Processor) alertBodyForKind(evtKind int, evt *nostr.Event) string {
+	tagVal := func(name string) string {
+		for _, t := range evt.Tags {
+			if len(t) >= 2 && t[0] == name {
+				return t[1]
+			}
+		}
+		return ""
 	}
+
+	short := func(pk string) string {
+		if len(pk) >= 8 {
+			return pk[:8]
+		}
+		return pk
+	}
+
+	content := evt.Content
+
+	switch evtKind {
+	case 1: // note / reply / quote
+		if tagVal("p") != "" { // reply or quote to you
+			if tagVal("q") != "" {
+				return "Quote reposted your message: " + content
+			}
+			return "Replied to your message: " + content
+		}
+		return "New message: " + content
+
+	case 7: // reaction
+		if pk := evt.PubKey; pk != "" {
+			return short(pk) + " liked: " + content
+		}
+		return "Received a like"
+
+	case 1059: // dm
+		if ptag := tagVal("p"); ptag != "" {
+			return short(ptag) + "received a message"
+		}
+		return "Received a direct message"
+
+	case 6: // repost
+		if pk := evt.PubKey; pk != "" {
+			return short(pk) + " reposted your message"
+		}
+		return "Message was reposted"
+
+	case 9735: // zap
+		bolt := tagVal("bolt11")
+		sats := parseBolt11Amount(bolt)
+		return "Received " + fmt.Sprintf("%d", sats) + " sats via Zap"
+
+	default:
+		return "Received a new notification"
+	}
+}
+
+// parseBolt11Amount extracts sat amount from bolt11 invoice; minimal implementation.
+func parseBolt11Amount(bolt string) int64 {
+	// invoices like lnbc10u1... 10u = 10 * 100 = 1000 sat (u = micro-BTC = 100 sat) ; lnbc20m... 20m = 20*100000 =2,000,000 sat
+	if len(bolt) < 4 {
+		return 0
+	}
+	// strip prefix "lnbc" or "lntbs"
+	var numPart string
+	for i := 4; i < len(bolt); i++ {
+		c := bolt[i]
+		if c >= '0' && c <= '9' {
+			numPart += string(c)
+		} else {
+			// reached unit
+			unit := bolt[i]
+			if n, err := strconv.ParseInt(numPart, 10, 64); err == nil {
+				switch unit {
+				case 'p':
+					return n / 10 // pico-BTC 1p=0.1 sat
+				case 'n':
+					return n / 100 // nano 1n=1 sat/100
+				case 'u':
+					return n * 1
+				case 'm':
+					return n * 1000
+				default:
+					return n * 100000000 // assume BTC
+				}
+			}
+			break
+		}
+	}
+	return 0
 }
 
 // AddGroup adds new group to subscription matcher
