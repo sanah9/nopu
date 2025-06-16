@@ -6,14 +6,14 @@ import (
 	"time"
 
 	"github.com/sideshow/apns2"
+	"github.com/sideshow/apns2/certificate"
 	"github.com/sideshow/apns2/payload"
-	"github.com/sideshow/apns2/token"
 
 	"nopu/internal/config"
 )
 
 // APNSClient wraps an apns2 client for sending push notifications.
-// Uses token-based (.p8) authentication (JWT).
+// Uses certificate-based (.p12 or .pem) authentication.
 // Thread-safe and reusable.
 //
 // Example:
@@ -29,24 +29,16 @@ type APNSClient struct {
 
 // NewAPNSClient creates a new APNSClient with the given configuration.
 func NewAPNSClient(cfg config.ApnsConfig) (*APNSClient, error) {
-	if cfg.KeyPath == "" || cfg.KeyID == "" || cfg.TeamID == "" || cfg.BundleID == "" {
-		return nil, fmt.Errorf("incomplete apns configuration")
+	if cfg.CertPath == "" || cfg.BundleID == "" {
+		return nil, fmt.Errorf("incomplete apns configuration (require cert_path & bundle_id)")
 	}
 
-	authKey, err := token.AuthKeyFromFile(cfg.KeyPath)
+	cert, err := certificate.FromP12File(cfg.CertPath, cfg.CertPassword)
 	if err != nil {
-		return nil, fmt.Errorf("load apns auth key failed: %w", err)
+		return nil, fmt.Errorf("load apns certificate failed: %w", err)
 	}
 
-	tok := &token.Token{
-		AuthKey: authKey,
-		KeyID:   cfg.KeyID,
-		TeamID:  cfg.TeamID,
-	}
-
-	// token expiry handled internally, token.GenerateIfExpired()
-
-	cli := apns2.NewTokenClient(tok)
+	cli := apns2.NewClient(cert)
 	if cfg.Production {
 		cli = cli.Production()
 	} else {

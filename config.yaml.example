@@ -36,8 +36,7 @@ listener:
 
 # APNs push configuration
 apns:
-  key_path: "path/to/AuthKey_PXXXXXX.p8"  # Apple .p8 private key path
-  key_id: "ABCD1234EF"                    # Key ID
-  team_id: "TEAMID1234"                   # Team ID
+  cert_path: "path/to/cert.p12"            # Apple .p12 path
+  cert_password: ""                       # p12 password
   bundle_id: "com.example.app"            # App Bundle ID (Topic)
   production: false                        # Use production environment 

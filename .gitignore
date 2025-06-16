@@ -4,3 +4,4 @@ dump.rdb
 main
 config.yaml
 /logs
+*.p12

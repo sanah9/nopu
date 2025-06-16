@@ -5,11 +5,12 @@ go 1.23.1
 toolchain go1.24.2
 
 require (
-	github.com/fiatjaf/eventstore v0.9.0
+	github.com/fiatjaf/eventstore v0.11.1
 	github.com/fiatjaf/khatru v0.8.1
 	github.com/fiatjaf/relay29 v0.5.1
 	github.com/nbd-wtf/go-nostr v0.42.1
 	github.com/redis/go-redis/v9 v9.3.0
+	github.com/sideshow/apns2 v0.25.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -40,12 +41,12 @@ require (
 	github.com/rs/cors v1.11.1 // indirect
 	github.com/rs/zerolog v1.31.0 // indirect
 	github.com/savsgio/gotils v0.0.0-20250408102913-196191ec6287 // indirect
-	github.com/sideshow/apns2 v0.25.0 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.62.0 // indirect
+	golang.org/x/crypto v0.39.0 // indirect
 	golang.org/x/exp v0.0.0-20240909161429-701f63a606c0 // indirect
 	golang.org/x/net v0.41.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect

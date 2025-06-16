@@ -44,11 +44,10 @@ type ListenerConfig struct {
 
 // ApnsConfig contains APNs push configuration
 type ApnsConfig struct {
-	KeyPath    string `yaml:"key_path"`   // .p8 private key file path
-	KeyID      string `yaml:"key_id"`     // Apple Developer Key ID
-	TeamID     string `yaml:"team_id"`    // Apple Developer Team ID
-	BundleID   string `yaml:"bundle_id"`  // Application bundle identifier (Topic)
-	Production bool   `yaml:"production"` // Use production environment, false for sandbox
+	BundleID     string `yaml:"bundle_id"`     // Application bundle identifier (Topic)
+	Production   bool   `yaml:"production"`    // Use production environment, false for sandbox
+	CertPath     string `yaml:"cert_path"`     // .p12 or .pem APNs certificate path (required)
+	CertPassword string `yaml:"cert_password"` // Certificate password, empty if not protected
 }
 
 // Load loads configuration
@@ -75,11 +74,10 @@ func Load() (*Config, error) {
 			MaxRetries:     0,
 		},
 		Apns: ApnsConfig{
-			KeyPath:    "",
-			KeyID:      "",
-			TeamID:     "",
-			BundleID:   "",
-			Production: false,
+			BundleID:     "",
+			Production:   false,
+			CertPath:     "",
+			CertPassword: "",
 		},
 	}
 
@@ -165,15 +163,6 @@ func overrideWithEnv(cfg *Config) {
 	}
 
 	// Override APNS configuration with environment variables
-	if keyPath := os.Getenv("APNS_KEY_PATH"); keyPath != "" {
-		cfg.Apns.KeyPath = keyPath
-	}
-	if keyID := os.Getenv("APNS_KEY_ID"); keyID != "" {
-		cfg.Apns.KeyID = keyID
-	}
-	if teamID := os.Getenv("APNS_TEAM_ID"); teamID != "" {
-		cfg.Apns.TeamID = teamID
-	}
 	if bundleID := os.Getenv("APNS_BUNDLE_ID"); bundleID != "" {
 		cfg.Apns.BundleID = bundleID
 	}
@@ -181,6 +170,12 @@ func overrideWithEnv(cfg *Config) {
 		if prod, err := strconv.ParseBool(productionStr); err == nil {
 			cfg.Apns.Production = prod
 		}
+	}
+	if certPath := os.Getenv("APNS_CERT_PATH"); certPath != "" {
+		cfg.Apns.CertPath = certPath
+	}
+	if certPwd := os.Getenv("APNS_CERT_PASSWORD"); certPwd != "" {
+		cfg.Apns.CertPassword = certPwd
 	}
 }
 
