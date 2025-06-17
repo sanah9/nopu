@@ -5,3 +5,5 @@ main
 config.yaml
 /logs
 *.p12
+*.pem
+deploy.sh
