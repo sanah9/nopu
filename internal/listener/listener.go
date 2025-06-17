@@ -168,7 +168,6 @@ func (l *Listener) handleEvent(ctx context.Context, event *nostr.Event) {
 	}
 
 	if isDupe {
-		log.Printf("Duplicate event filtered [Kind: %d, ID: %s]", event.Kind, event.ID[:8])
 		return
 	}
 
@@ -202,8 +201,6 @@ func (l *Listener) handleEvent(ctx context.Context, event *nostr.Event) {
 		log.Printf("Failed to add event to Redis stream: %v", err)
 		return
 	}
-
-	log.Printf("Received event [Kind: %d, ID: %s] from relay", event.Kind, event.ID[:8])
 }
 
 // kindIntToKind converts int types to nostr.Kind

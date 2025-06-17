@@ -156,9 +156,6 @@ func (p *Processor) processMessage(ctx context.Context, msg redis.XMessage, grou
 
 // forwardToGroup forwards event to a specific group
 func (p *Processor) forwardToGroup(ctx context.Context, event *nostr.Event, group *nip29.Group) error {
-	log.Printf("Forwarding event to group %s: [Kind: %d, ID: %s]",
-		group.Address.ID, event.Kind, event.ID[:8])
-
 	// Serialize original event to JSON
 	eventJSON, err := json.Marshal(event)
 	if err != nil {
@@ -187,13 +184,10 @@ func (p *Processor) forwardToGroup(ctx context.Context, event *nostr.Event, grou
 	if online {
 		if p.state.Relay != nil {
 			p.state.Relay.BroadcastEvent(kind20284Event)
-			log.Printf("[online] Forwarded event %s to group %s as kind 20284 event %s",
-				event.ID[:8], group.Address.ID, kind20284Event.ID[:8])
 		} else {
 			log.Printf("Warning: No relay instance available for broadcasting")
 		}
 	} else {
-		log.Printf("[offline] Group %s seems offline, sending APNs push", group.Address.ID)
 		p.pushNotification(ctx, group, event, kind20284Event)
 	}
 
@@ -211,7 +205,6 @@ func (p *Processor) isFirstMemberOnline(group *nip29.Group) bool {
 // pushNotification sends an APNs notification to offline members
 func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, originalEvent *nostr.Event, wrappedEvent *nostr.Event) {
 	if p.apns == nil {
-		log.Printf("APNS client not configured, skip push")
 		return
 	}
 
@@ -222,7 +215,6 @@ func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, or
 	}
 
 	if deviceToken == "" {
-		log.Printf("No subscription ID (device token) found for group %s, skip push", group.Address.ID)
 		return
 	}
 
