@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"reflect"
 	"syscall"
 	"time"
 
@@ -81,6 +82,18 @@ func main() {
 		DefaultRoles:            []*nip29.Role{kingRole, bishopRole},
 		GroupCreatorDefaultRole: kingRole,
 	})
+
+	// Ensure AddToPreviousChecking runs before any handler that might modify the groups map, preventing nil pointer panics after group deletion
+	{
+		var filtered []func(context.Context, *nostr.Event)
+		for _, h := range relay.OnEventSaved {
+			if reflect.ValueOf(h).Pointer() == reflect.ValueOf(state.AddToPreviousChecking).Pointer() {
+				continue // Skip the original AddToPreviousChecking handler
+			}
+			filtered = append(filtered, h)
+		}
+		relay.OnEventSaved = append([]func(context.Context, *nostr.Event){state.AddToPreviousChecking}, filtered...)
+	}
 
 	// Install presence tracking hooks
 	presence.SetupPresenceHooks(relay)
