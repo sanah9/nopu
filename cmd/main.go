@@ -115,6 +115,7 @@ func main() {
 		policies.PreventLargeTags(64),
 		policies.PreventTooManyIndexableTags(6, []int{9005}, nil),
 		policies.RestrictToSpecifiedKinds(
+			true,
 			9000, 9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009, // Group management
 			9021, 9022, 20284, // Group invitations
 		),
