@@ -10,10 +10,18 @@ Nopu is a completely **free and open source** push service based on the Nostr pr
 
 ## System Architecture
 
-```
-External Nostr Relay → Event Listener → Redis Queue → Event Processor → Subscription Server → Subscription Client
-                                                                
-```
+![System Architecture](digram.svg)
+
+- **Subscription Server**  
+  - Self-hostable  
+  - Subscribes to relay events  
+  - Receives client subscriptions
+- **nopu Push Server**  
+  - Receives messages from Subscription Server  
+  - Forwards via FCM/APNs
+- **nopu Clients (iOS / Android)**  
+  - Display push messages  
+  - Send subscriptions to Subscription Server
 
 ## Event Flow
 
