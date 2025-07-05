@@ -13,8 +13,7 @@ import (
 type Config struct {
 	Redis              RedisConfig              `yaml:"redis"`
 	SubscriptionServer SubscriptionServerConfig `yaml:"subscription_server"`
-	Listener           ListenerConfig           `yaml:"listener"`
-	Apns               ApnsConfig               `yaml:"apns"`
+	PushServer         PushServerConfig         `yaml:"push_server"`
 }
 
 // RedisConfig Redis configuration
@@ -31,6 +30,19 @@ type SubscriptionServerConfig struct {
 	RelayDescription string `yaml:"relay_description"`
 	Domain           string `yaml:"domain"`
 	RelayPrivateKey  string `yaml:"relay_private_key"`
+	// New fields for subscription management
+	MaxSubscriptions int            `yaml:"max_subscriptions"` // Maximum subscriptions per client
+	Listener         ListenerConfig `yaml:"listener"`          // Listener configuration for Nostr relays
+}
+
+// PushServerConfig push server configuration
+type PushServerConfig struct {
+	Port                  int        `yaml:"port"`
+	SubscriptionServerURL string     `yaml:"subscription_server_url"` // URL to connect to subscription server
+	WorkerCount           int        `yaml:"worker_count"`            // Number of worker goroutines
+	BatchSize             int        `yaml:"batch_size"`              // Batch size for processing messages
+	Apns                  ApnsConfig `yaml:"apns"`                    // APNs push configuration
+	FCM                   FCMConfig  `yaml:"fcm"`                     // FCM push configuration
 }
 
 // ListenerConfig listener server configuration
@@ -50,6 +62,13 @@ type ApnsConfig struct {
 	CertPassword string `yaml:"cert_password"` // Certificate password, empty if not protected
 }
 
+// FCMConfig contains Firebase Cloud Messaging configuration
+type FCMConfig struct {
+	ProjectID          string `yaml:"project_id"`           // Firebase project ID
+	ServiceAccountPath string `yaml:"service_account_path"` // Path to service account JSON file
+	DefaultTopic       string `yaml:"default_topic"`        // Default FCM topic
+}
+
 // Load loads configuration
 func Load() (*Config, error) {
 	// Default configuration
@@ -61,23 +80,35 @@ func Load() (*Config, error) {
 		},
 		SubscriptionServer: SubscriptionServerConfig{
 			Port:             8080,
-			RelayName:        "Nopu Relay",
-			RelayDescription: "Subscription-based message push service",
+			RelayName:        "Nopu Subscription Server",
+			RelayDescription: "Self-hostable subscription server for push notifications",
 			Domain:           "localhost:8080",
 			RelayPrivateKey:  "",
+			MaxSubscriptions: 100,
+			Listener: ListenerConfig{
+				Relays:         []string{"wss://relay.damus.io", "wss://relay.0xchat.com"},
+				Kinds:          []int{1, 7},
+				BatchSize:      100,
+				ReconnectDelay: 5 * time.Second,
+				MaxRetries:     0,
+			},
 		},
-		Listener: ListenerConfig{
-			Relays:         []string{"wss://relay.damus.io", "wss://relay.0xchat.com"},
-			Kinds:          []int{1, 7},
-			BatchSize:      100,
-			ReconnectDelay: 5 * time.Second,
-			MaxRetries:     0,
-		},
-		Apns: ApnsConfig{
-			BundleID:     "",
-			Production:   false,
-			CertPath:     "",
-			CertPassword: "",
+		PushServer: PushServerConfig{
+			Port:                  8081,
+			SubscriptionServerURL: "ws://localhost:8080",
+			WorkerCount:           10,
+			BatchSize:             100,
+			Apns: ApnsConfig{
+				BundleID:     "",
+				Production:   false,
+				CertPath:     "",
+				CertPassword: "",
+			},
+			FCM: FCMConfig{
+				ProjectID:          "",
+				ServiceAccountPath: "",
+				DefaultTopic:       "nopu_notifications",
+			},
 		},
 	}
 
@@ -93,6 +124,34 @@ func Load() (*Config, error) {
 	overrideWithEnv(cfg)
 
 	return cfg, nil
+}
+
+// LoadSubscriptionServerConfig loads configuration for subscription server only
+func LoadSubscriptionServerConfig() (*Config, error) {
+	cfg, err := Load()
+	if err != nil {
+		return nil, err
+	}
+
+	// Return only the parts needed by subscription server
+	return &Config{
+		Redis:              cfg.Redis,
+		SubscriptionServer: cfg.SubscriptionServer,
+	}, nil
+}
+
+// LoadPushServerConfig loads configuration for push server only
+func LoadPushServerConfig() (*Config, error) {
+	cfg, err := Load()
+	if err != nil {
+		return nil, err
+	}
+
+	// Return only the parts needed by push server
+	return &Config{
+		Redis:      cfg.Redis,
+		PushServer: cfg.PushServer,
+	}, nil
 }
 
 // loadFromYAML loads configuration from YAML file
@@ -150,32 +209,60 @@ func overrideWithEnv(cfg *Config) {
 	if relayPrivateKey := os.Getenv("RELAY_PRIVATE_KEY"); relayPrivateKey != "" {
 		cfg.SubscriptionServer.RelayPrivateKey = relayPrivateKey
 	}
+	if maxSubscriptions := getEnvInt("MAX_SUBSCRIPTIONS", cfg.SubscriptionServer.MaxSubscriptions); maxSubscriptions != cfg.SubscriptionServer.MaxSubscriptions {
+		cfg.SubscriptionServer.MaxSubscriptions = maxSubscriptions
+	}
+
+	// Push server configuration
+	if pushPort := getEnvInt("PUSH_SERVER_PORT", cfg.PushServer.Port); pushPort != cfg.PushServer.Port {
+		cfg.PushServer.Port = pushPort
+	}
+	if subscriptionServerURL := os.Getenv("SUBSCRIPTION_SERVER_URL"); subscriptionServerURL != "" {
+		cfg.PushServer.SubscriptionServerURL = subscriptionServerURL
+	}
+	if workerCount := getEnvInt("WORKER_COUNT", cfg.PushServer.WorkerCount); workerCount != cfg.PushServer.WorkerCount {
+		cfg.PushServer.WorkerCount = workerCount
+	}
+	if batchSize := getEnvInt("BATCH_SIZE", cfg.PushServer.BatchSize); batchSize != cfg.PushServer.BatchSize {
+		cfg.PushServer.BatchSize = batchSize
+	}
 
 	// Listener configuration
 	if relays := getEnvSlice("LISTEN_RELAYS", nil); relays != nil {
-		cfg.Listener.Relays = relays
+		cfg.SubscriptionServer.Listener.Relays = relays
 	}
 	if kinds := getEnvIntSlice("LISTEN_KINDS", nil); kinds != nil {
-		cfg.Listener.Kinds = kinds
+		cfg.SubscriptionServer.Listener.Kinds = kinds
 	}
-	if batchSize := getEnvInt("BATCH_SIZE", cfg.Listener.BatchSize); batchSize != cfg.Listener.BatchSize {
-		cfg.Listener.BatchSize = batchSize
+	if batchSize := getEnvInt("BATCH_SIZE", cfg.SubscriptionServer.Listener.BatchSize); batchSize != cfg.SubscriptionServer.Listener.BatchSize {
+		cfg.SubscriptionServer.Listener.BatchSize = batchSize
 	}
 
 	// Override APNS configuration with environment variables
 	if bundleID := os.Getenv("APNS_BUNDLE_ID"); bundleID != "" {
-		cfg.Apns.BundleID = bundleID
+		cfg.PushServer.Apns.BundleID = bundleID
 	}
 	if productionStr := os.Getenv("APNS_PRODUCTION"); productionStr != "" {
 		if prod, err := strconv.ParseBool(productionStr); err == nil {
-			cfg.Apns.Production = prod
+			cfg.PushServer.Apns.Production = prod
 		}
 	}
 	if certPath := os.Getenv("APNS_CERT_PATH"); certPath != "" {
-		cfg.Apns.CertPath = certPath
+		cfg.PushServer.Apns.CertPath = certPath
 	}
 	if certPwd := os.Getenv("APNS_CERT_PASSWORD"); certPwd != "" {
-		cfg.Apns.CertPassword = certPwd
+		cfg.PushServer.Apns.CertPassword = certPwd
+	}
+
+	// FCM configuration
+	if projectID := os.Getenv("FCM_PROJECT_ID"); projectID != "" {
+		cfg.PushServer.FCM.ProjectID = projectID
+	}
+	if serviceAccountPath := os.Getenv("FCM_SERVICE_ACCOUNT_PATH"); serviceAccountPath != "" {
+		cfg.PushServer.FCM.ServiceAccountPath = serviceAccountPath
+	}
+	if defaultTopic := os.Getenv("FCM_DEFAULT_TOPIC"); defaultTopic != "" {
+		cfg.PushServer.FCM.DefaultTopic = defaultTopic
 	}
 }
 
