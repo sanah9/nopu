@@ -9,48 +9,34 @@ redis:
 # Subscription server configuration
 subscription_server:
   port: 8080
-  relay_name: "Nopu Subscription Server"
-  relay_description: "Self-hostable subscription server for push notifications"
+  relay_name: "Nopu Relay"
+  relay_description: "Subscription-based message push service"
   domain: "localhost:8080"
   relay_private_key: ""
-  max_subscriptions: 100
+
+# Listener server configuration
+listener:
+  # List of Nostr Relays to listen to
+  relays:
+    - "wss://relay.damus.io"
+    - "wss://nos.lol"
+    - "wss://relay.nostr.band"
   
-  # Listener configuration for Nostr relays
-  listener:
-    # List of Nostr Relays to listen to
-    relays:
-      - "wss://relay.damus.io"
-      - "wss://nos.lol"
-      - "wss://relay.nostr.band"
-    
-    # Event types to listen for
-    kinds:
-      - 1  # Short text notes
-      - 7  # Reactions/likes
-    
-    # Batch processing size
-    batch_size: 100
-
-    # Reconnection settings
-    reconnect_delay: 5s  # Reconnection delay time, supported units: ms, s, m, h
-    max_retries: 0      # Maximum retry attempts, 0 means infinite retries 
-
-# Push server configuration
-push_server:
-  port: 8081
-  subscription_server_url: "ws://localhost:8080"
-  worker_count: 10
+  # Event types to listen for
+  kinds:
+    - 1  # Short text notes
+    - 7  # Reactions/likes
+  
+  # Batch processing size
   batch_size: 100
-  
-  # APNs push configuration
-  apns:
-    cert_path: "path/to/cert.p12"            # Apple .p12 path
-    cert_password: ""                       # p12 password
-    bundle_id: "com.example.app"            # App Bundle ID (Topic)
-    production: false                        # Use production environment 
 
-  # FCM push configuration
-  fcm:
-    project_id: "your-firebase-project-id"
-    service_account_path: "path/to/service-account.json"
-    default_topic: "nopu_notifications" 
+  # Reconnection settings
+  reconnect_delay: 5s  # Reconnection delay time, supported units: ms, s, m, h
+  max_retries: 0      # Maximum retry attempts, 0 means infinite retries 
+
+# APNs push configuration
+apns:
+  cert_path: "path/to/cert.p12"            # Apple .p12 path
+  cert_password: ""                       # p12 password
+  bundle_id: "com.example.app"            # App Bundle ID (Topic)
+  production: false                        # Use production environment 
