@@ -26,17 +26,19 @@ import (
 
 // Server represents the subscription server
 type Server struct {
-	cfg          *config.Config
-	db           *lmdb.LMDBBackend
-	redis        *redis.Client
-	relay        *khatru.Relay
-	state        *relay29.State
-	listener     *listener.Listener
-	clients      map[string]*Client
-	clientsMutex sync.RWMutex
-	upgrader     websocket.Upgrader
-	eventChan    chan *nostr.Event
-	shutdownChan chan struct{}
+	cfg           *config.Config
+	db            *lmdb.LMDBBackend
+	redis         *redis.Client
+	relay         *khatru.Relay
+	state         *relay29.State
+	listener      *listener.Listener
+	clients       map[string]*Client
+	clientsMutex  sync.RWMutex
+	pushConn      *websocket.Conn
+	pushConnMutex sync.RWMutex
+	upgrader      websocket.Upgrader
+	eventChan     chan *nostr.Event
+	shutdownChan  chan struct{}
 }
 
 // Client represents a connected client
@@ -165,6 +167,13 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if this is a push server connection
+	clientType := r.Header.Get("X-Client-Type")
+	if clientType == "push-server" {
+		s.handlePushServerConnection(conn)
+		return
+	}
+
 	clientID := r.Header.Get("X-Client-ID")
 	if clientID == "" {
 		clientID = generateClientID()
@@ -184,6 +193,56 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Handle client messages
 	go s.handleClientMessages(client)
+}
+
+// handlePushServerConnection handles connection from push server
+func (s *Server) handlePushServerConnection(conn *websocket.Conn) {
+	s.pushConnMutex.Lock()
+	s.pushConn = conn
+	s.pushConnMutex.Unlock()
+
+	log.Printf("Push server connected")
+
+	// Handle push server messages
+	go s.handlePushServerMessages(conn)
+}
+
+// handlePushServerMessages handles messages from push server
+func (s *Server) handlePushServerMessages(conn *websocket.Conn) {
+	defer func() {
+		conn.Close()
+		s.pushConnMutex.Lock()
+		s.pushConn = nil
+		s.pushConnMutex.Unlock()
+		log.Printf("Push server disconnected")
+	}()
+
+	for {
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			log.Printf("Error reading message from push server: %v", err)
+			return
+		}
+
+		var msg map[string]interface{}
+		if err := json.Unmarshal(message, &msg); err != nil {
+			log.Printf("Invalid JSON from push server: %v", err)
+			continue
+		}
+
+		msgType, ok := msg["type"].(string)
+		if !ok {
+			log.Printf("Missing message type from push server")
+			continue
+		}
+
+		switch msgType {
+		case "pong":
+			log.Printf("Received pong from push server")
+		default:
+			log.Printf("Unknown message type from push server: %s", msgType)
+		}
+	}
 }
 
 // handleClientMessages handles messages from a specific client
@@ -331,6 +390,7 @@ func (s *Server) processEvents(ctx context.Context) {
 		select {
 		case event := <-s.eventChan:
 			s.forwardEventToClients(event)
+			s.forwardEventToPushServer(event)
 		case <-ctx.Done():
 			return
 		case <-s.shutdownChan:
@@ -504,7 +564,57 @@ func generateSubscriptionID() string {
 
 // forwardEventToPushServer forwards an event to push server
 func (s *Server) forwardEventToPushServer(event *nostr.Event) {
-	// This would implement the logic to send events to push server
-	// No authentication required - free communication
-	log.Printf("Forwarding event %s to push server", event.ID[:8])
+	s.pushConnMutex.RLock()
+	conn := s.pushConn
+	s.pushConnMutex.RUnlock()
+
+	if conn == nil {
+		log.Printf("Push server not connected, skipping event %s", event.ID[:8])
+		return
+	}
+
+	// Find matching subscriptions for this event
+	s.clientsMutex.RLock()
+	var matchingSubscriptions []string
+	for _, client := range s.clients {
+		client.Mutex.RLock()
+		for _, sub := range client.Subscriptions {
+			if s.matchesFilters(event, sub.Filters) {
+				matchingSubscriptions = append(matchingSubscriptions, sub.ID)
+			}
+		}
+		client.Mutex.RUnlock()
+	}
+	s.clientsMutex.RUnlock()
+
+	if len(matchingSubscriptions) == 0 {
+		log.Printf("No matching subscriptions for event %s", event.ID[:8])
+		return
+	}
+
+	// Send event to push server for each matching subscription
+	for _, subscriptionID := range matchingSubscriptions {
+		message := map[string]interface{}{
+			"type":            "event",
+			"subscription_id": subscriptionID,
+			"event":           event,
+		}
+
+		data, err := json.Marshal(message)
+		if err != nil {
+			log.Printf("Error marshaling event for push server: %v", err)
+			continue
+		}
+
+		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			log.Printf("Error sending event to push server: %v", err)
+			// Mark connection as lost
+			s.pushConnMutex.Lock()
+			s.pushConn = nil
+			s.pushConnMutex.Unlock()
+			return
+		}
+
+		log.Printf("Forwarded event %s to push server for subscription %s", event.ID[:8], subscriptionID)
+	}
 }
