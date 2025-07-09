@@ -8,6 +8,7 @@ require (
 	github.com/fiatjaf/eventstore v0.16.4
 	github.com/fiatjaf/khatru v0.18.2
 	github.com/fiatjaf/relay29 v0.0.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/nbd-wtf/go-nostr v0.51.12
 	github.com/redis/go-redis/v9 v9.3.0
 	github.com/sideshow/apns2 v0.25.0

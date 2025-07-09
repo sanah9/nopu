@@ -18,7 +18,7 @@ import (
 //
 // Example:
 //   cfg, _ := config.Load()
-//   apnsCli, err := NewAPNSClient(cfg.Apns)
+//   apnsCli, err := NewAPNSClient(cfg.PushServer.Apns)
 //   if err != nil { /* handle error */ }
 //   resp, err := apnsCli.Push(ctx, deviceToken, "Title", "Body", nil)
 
