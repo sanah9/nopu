@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/redis/go-redis/v9"
 
 	"nopu/internal/config"
 )
@@ -17,7 +16,6 @@ import (
 // Server represents the push server
 type Server struct {
 	cfg                 *config.Config
-	redis               *redis.Client
 	subscriptionConn    *websocket.Conn
 	apnsClient          *APNSClient
 	fcmClient           *FCMClient
@@ -68,19 +66,6 @@ type FCMClient struct {
 
 // NewServer creates a new push server
 func NewServer(cfg *config.Config) (*Server, error) {
-	// Initialize Redis
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     cfg.Redis.Addr,
-		Password: cfg.Redis.Password,
-		DB:       cfg.Redis.DB,
-	})
-
-	// Test Redis connection
-	ctx := context.Background()
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		return nil, fmt.Errorf("Redis connection failed: %v", err)
-	}
-
 	// Create APNS client
 	apnsClient, err := NewAPNSClient(cfg.PushServer.Apns)
 	if err != nil {
@@ -96,7 +81,6 @@ func NewServer(cfg *config.Config) (*Server, error) {
 
 	server := &Server{
 		cfg:                 cfg,
-		redis:               rdb,
 		apnsClient:          apnsClient,
 		fcmClient:           fcmClient,
 		workerCount:         cfg.PushServer.WorkerCount,
@@ -454,9 +438,9 @@ func (s *Server) Shutdown() {
 	}
 
 	// Close Redis connection
-	if s.redis != nil {
-		s.redis.Close()
-	}
+	// if s.redis != nil {
+	// 	s.redis.Close()
+	// }
 }
 
 // Worker methods

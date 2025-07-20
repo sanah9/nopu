@@ -10,7 +10,6 @@ require (
 	github.com/fiatjaf/relay29 v0.0.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/nbd-wtf/go-nostr v0.51.12
-	github.com/redis/go-redis/v9 v9.3.0
 	github.com/sideshow/apns2 v0.25.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -25,13 +24,11 @@ require (
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
 	github.com/bytedance/sonic v1.13.2 // indirect
 	github.com/bytedance/sonic/loader v0.2.4 // indirect
-	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.5 // indirect
 	github.com/coder/websocket v1.8.13 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
-	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/fasthttp/websocket v1.5.12 // indirect
 	github.com/fiatjaf/set v0.0.4 // indirect
 	github.com/golang-jwt/jwt/v4 v4.4.1 // indirect

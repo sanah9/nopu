@@ -1,10 +1,10 @@
 # Nopu configuration file example
 
-# Redis configuration
-redis:
-  addr: "localhost:6379"
-  password: ""
-  db: 0
+# Memory queue configuration
+memory_queue:
+  max_size: 10000        # Maximum number of events in queue
+  dedupe_ttl: 24h        # TTL for deduplication cache (24 hours)
+  buffer_size: 1000      # Buffer size for consumers
 
 # Subscription server configuration
 subscription_server:

@@ -2,21 +2,14 @@ package listener
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"sync"
 	"time"
 
 	"nopu/internal/config"
+	"nopu/internal/queue"
 
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/redis/go-redis/v9"
-)
-
-const (
-	EventStreamKey    = "nopu:events"
-	EventDedupeSetKey = "nopu:events:deduped"
-	DedupeExpiration  = 24 * time.Hour // Expiration time for deduplication cache
 )
 
 // RelayConnection represents a connection to a relay
@@ -32,16 +25,16 @@ type RelayConnection struct {
 // Listener event listener
 type Listener struct {
 	cfg        config.ListenerConfig
-	redis      *redis.Client
+	queue      *queue.MemoryQueue
 	relays     map[string]*RelayConnection
 	relayMutex sync.RWMutex
 }
 
 // New creates a new listener
-func New(cfg config.ListenerConfig, rdb *redis.Client) *Listener {
+func New(cfg config.ListenerConfig, queue *queue.MemoryQueue) *Listener {
 	return &Listener{
 		cfg:    cfg,
-		redis:  rdb,
+		queue:  queue,
 		relays: make(map[string]*RelayConnection),
 	}
 }
@@ -160,45 +153,9 @@ func (l *Listener) connectAndListen(ctx context.Context, conn *RelayConnection) 
 
 // handleEvent handles received events
 func (l *Listener) handleEvent(ctx context.Context, event *nostr.Event) {
-	// Check if event ID has already been processed (deduplication)
-	isDupe, err := l.redis.SIsMember(ctx, EventDedupeSetKey, event.ID).Result()
-	if err != nil {
-		log.Printf("Failed to check event deduplication: %v", err)
-		return
-	}
-
-	if isDupe {
-		return
-	}
-
-	// Mark event ID as processed
-	pipe := l.redis.Pipeline()
-	pipe.SAdd(ctx, EventDedupeSetKey, event.ID)
-	pipe.Expire(ctx, EventDedupeSetKey, DedupeExpiration)
-	if _, err := pipe.Exec(ctx); err != nil {
-		log.Printf("Failed to mark event as processed: %v", err)
-		return
-	}
-
-	// Serialize event
-	eventData, err := json.Marshal(event)
-	if err != nil {
-		log.Printf("Failed to serialize event: %v", err)
-		return
-	}
-
-	// Add to Redis stream
-	args := &redis.XAddArgs{
-		Stream: EventStreamKey,
-		Values: map[string]interface{}{
-			"event": string(eventData),
-			"kind":  event.Kind,
-			"id":    event.ID,
-		},
-	}
-
-	if err := l.redis.XAdd(ctx, args).Err(); err != nil {
-		log.Printf("Failed to add event to Redis stream: %v", err)
+	// Add event to memory queue (deduplication is handled by the queue)
+	if err := l.queue.AddEvent(ctx, event); err != nil {
+		log.Printf("Failed to add event to queue: %v", err)
 		return
 	}
 }

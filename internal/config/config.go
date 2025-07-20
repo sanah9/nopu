@@ -3,7 +3,6 @@ package config
 import (
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -11,16 +10,16 @@ import (
 
 // Config application configuration
 type Config struct {
-	Redis              RedisConfig              `yaml:"redis"`
+	MemoryQueue        MemoryQueueConfig        `yaml:"memory_queue"`
 	SubscriptionServer SubscriptionServerConfig `yaml:"subscription_server"`
 	PushServer         PushServerConfig         `yaml:"push_server"`
 }
 
-// RedisConfig Redis configuration
-type RedisConfig struct {
-	Addr     string `yaml:"addr"`
-	Password string `yaml:"password"`
-	DB       int    `yaml:"db"`
+// MemoryQueueConfig memory queue configuration
+type MemoryQueueConfig struct {
+	MaxSize    int           `yaml:"max_size"`    // Maximum number of events in queue
+	DedupeTTL  time.Duration `yaml:"dedupe_ttl"`  // TTL for deduplication cache
+	BufferSize int           `yaml:"buffer_size"` // Buffer size for consumers
 }
 
 // SubscriptionServerConfig subscription server configuration
@@ -47,36 +46,36 @@ type PushServerConfig struct {
 
 // ListenerConfig listener server configuration
 type ListenerConfig struct {
-	Relays         []string      `yaml:"relays"`
-	Kinds          []int         `yaml:"kinds"`
-	BatchSize      int           `yaml:"batch_size"`
-	ReconnectDelay time.Duration `yaml:"reconnect_delay"`
-	MaxRetries     int           `yaml:"max_retries"`
+	Relays         []string      `yaml:"relays"`          // List of Nostr relays to listen to
+	Kinds          []int         `yaml:"kinds"`           // Event kinds to listen for
+	BatchSize      int           `yaml:"batch_size"`      // Batch size for processing
+	ReconnectDelay time.Duration `yaml:"reconnect_delay"` // Reconnection delay
+	MaxRetries     int           `yaml:"max_retries"`     // Maximum retry attempts
 }
 
-// ApnsConfig contains APNs push configuration
+// ApnsConfig APNs push configuration
 type ApnsConfig struct {
-	BundleID     string `yaml:"bundle_id"`     // Application bundle identifier (Topic)
-	Production   bool   `yaml:"production"`    // Use production environment, false for sandbox
-	CertPath     string `yaml:"cert_path"`     // .p12 or .pem APNs certificate path (required)
-	CertPassword string `yaml:"cert_password"` // Certificate password, empty if not protected
+	CertPath     string `yaml:"cert_path"`     // Path to APNs certificate (.p12)
+	CertPassword string `yaml:"cert_password"` // Certificate password
+	BundleID     string `yaml:"bundle_id"`     // App bundle ID
+	Production   bool   `yaml:"production"`    // Use production environment
 }
 
-// FCMConfig contains Firebase Cloud Messaging configuration
+// FCMConfig FCM push configuration
 type FCMConfig struct {
 	ProjectID          string `yaml:"project_id"`           // Firebase project ID
-	ServiceAccountPath string `yaml:"service_account_path"` // Path to service account JSON file
+	ServiceAccountPath string `yaml:"service_account_path"` // Path to service account JSON
 	DefaultTopic       string `yaml:"default_topic"`        // Default FCM topic
 }
 
-// Load loads configuration
+// Load loads configuration from file and environment variables
 func Load() (*Config, error) {
 	// Default configuration
 	cfg := &Config{
-		Redis: RedisConfig{
-			Addr:     "localhost:6379",
-			Password: "",
-			DB:       0,
+		MemoryQueue: MemoryQueueConfig{
+			MaxSize:    10000,          // 10k events max
+			DedupeTTL:  24 * time.Hour, // 24 hours TTL
+			BufferSize: 1000,           // 1k buffer per consumer
 		},
 		SubscriptionServer: SubscriptionServerConfig{
 			Port:             8080,
@@ -135,7 +134,7 @@ func LoadSubscriptionServerConfig() (*Config, error) {
 
 	// Return only the parts needed by subscription server
 	return &Config{
-		Redis:              cfg.Redis,
+		MemoryQueue:        cfg.MemoryQueue,
 		SubscriptionServer: cfg.SubscriptionServer,
 	}, nil
 }
@@ -149,8 +148,8 @@ func LoadPushServerConfig() (*Config, error) {
 
 	// Return only the parts needed by push server
 	return &Config{
-		Redis:      cfg.Redis,
-		PushServer: cfg.PushServer,
+		MemoryQueue: cfg.MemoryQueue,
+		PushServer:  cfg.PushServer,
 	}, nil
 }
 
@@ -182,15 +181,12 @@ func loadFromYAML(cfg *Config) error {
 
 // overrideWithEnv overrides configuration with environment variables
 func overrideWithEnv(cfg *Config) {
-	// Redis configuration
-	if addr := os.Getenv("REDIS_ADDR"); addr != "" {
-		cfg.Redis.Addr = addr
+	// Memory queue configuration
+	if maxSize := getEnvInt("MEMORY_QUEUE_MAX_SIZE", cfg.MemoryQueue.MaxSize); maxSize != cfg.MemoryQueue.MaxSize {
+		cfg.MemoryQueue.MaxSize = maxSize
 	}
-	if password := os.Getenv("REDIS_PASSWORD"); password != "" {
-		cfg.Redis.Password = password
-	}
-	if db := getEnvInt("REDIS_DB", cfg.Redis.DB); db != cfg.Redis.DB {
-		cfg.Redis.DB = db
+	if bufferSize := getEnvInt("MEMORY_QUEUE_BUFFER_SIZE", cfg.MemoryQueue.BufferSize); bufferSize != cfg.MemoryQueue.BufferSize {
+		cfg.MemoryQueue.BufferSize = bufferSize
 	}
 
 	// Subscription server configuration
@@ -214,11 +210,11 @@ func overrideWithEnv(cfg *Config) {
 	}
 
 	// Push server configuration
-	if pushPort := getEnvInt("PUSH_SERVER_PORT", cfg.PushServer.Port); pushPort != cfg.PushServer.Port {
-		cfg.PushServer.Port = pushPort
+	if port := getEnvInt("PUSH_SERVER_PORT", cfg.PushServer.Port); port != cfg.PushServer.Port {
+		cfg.PushServer.Port = port
 	}
-	if subscriptionServerURL := os.Getenv("SUBSCRIPTION_SERVER_URL"); subscriptionServerURL != "" {
-		cfg.PushServer.SubscriptionServerURL = subscriptionServerURL
+	if url := os.Getenv("SUBSCRIPTION_SERVER_URL"); url != "" {
+		cfg.PushServer.SubscriptionServerURL = url
 	}
 	if workerCount := getEnvInt("WORKER_COUNT", cfg.PushServer.WorkerCount); workerCount != cfg.PushServer.WorkerCount {
 		cfg.PushServer.WorkerCount = workerCount
@@ -227,31 +223,18 @@ func overrideWithEnv(cfg *Config) {
 		cfg.PushServer.BatchSize = batchSize
 	}
 
-	// Listener configuration
-	if relays := getEnvSlice("LISTEN_RELAYS", nil); relays != nil {
-		cfg.SubscriptionServer.Listener.Relays = relays
-	}
-	if kinds := getEnvIntSlice("LISTEN_KINDS", nil); kinds != nil {
-		cfg.SubscriptionServer.Listener.Kinds = kinds
-	}
-	if batchSize := getEnvInt("BATCH_SIZE", cfg.SubscriptionServer.Listener.BatchSize); batchSize != cfg.SubscriptionServer.Listener.BatchSize {
-		cfg.SubscriptionServer.Listener.BatchSize = batchSize
-	}
-
-	// Override APNS configuration with environment variables
-	if bundleID := os.Getenv("APNS_BUNDLE_ID"); bundleID != "" {
-		cfg.PushServer.Apns.BundleID = bundleID
-	}
-	if productionStr := os.Getenv("APNS_PRODUCTION"); productionStr != "" {
-		if prod, err := strconv.ParseBool(productionStr); err == nil {
-			cfg.PushServer.Apns.Production = prod
-		}
-	}
+	// APNs configuration
 	if certPath := os.Getenv("APNS_CERT_PATH"); certPath != "" {
 		cfg.PushServer.Apns.CertPath = certPath
 	}
-	if certPwd := os.Getenv("APNS_CERT_PASSWORD"); certPwd != "" {
-		cfg.PushServer.Apns.CertPassword = certPwd
+	if certPassword := os.Getenv("APNS_CERT_PASSWORD"); certPassword != "" {
+		cfg.PushServer.Apns.CertPassword = certPassword
+	}
+	if bundleID := os.Getenv("APNS_BUNDLE_ID"); bundleID != "" {
+		cfg.PushServer.Apns.BundleID = bundleID
+	}
+	if production := os.Getenv("APNS_PRODUCTION"); production != "" {
+		cfg.PushServer.Apns.Production = production == "true"
 	}
 
 	// FCM configuration
@@ -266,33 +249,11 @@ func overrideWithEnv(cfg *Config) {
 	}
 }
 
+// getEnvInt gets an integer environment variable
 func getEnvInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		if intValue, err := strconv.Atoi(value); err == nil {
 			return intValue
-		}
-	}
-	return defaultValue
-}
-
-func getEnvSlice(key string, defaultValue []string) []string {
-	if value := os.Getenv(key); value != "" {
-		return strings.Split(value, ",")
-	}
-	return defaultValue
-}
-
-func getEnvIntSlice(key string, defaultValue []int) []int {
-	if value := os.Getenv(key); value != "" {
-		parts := strings.Split(value, ",")
-		result := make([]int, 0, len(parts))
-		for _, part := range parts {
-			if intValue, err := strconv.Atoi(strings.TrimSpace(part)); err == nil {
-				result = append(result, intValue)
-			}
-		}
-		if len(result) > 0 {
-			return result
 		}
 	}
 	return defaultValue

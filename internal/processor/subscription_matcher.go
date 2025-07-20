@@ -284,3 +284,24 @@ func (sm *SubscriptionMatcher) RefreshAllCaches() {
 
 	log.Printf("Refreshed subscription caches for %d groups", len(sm.groups))
 }
+
+// ClearGroups clears all groups from the matcher
+func (sm *SubscriptionMatcher) ClearGroups() {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	sm.groups = make(map[string]*nip29.Group)
+	sm.parsedSubscriptions = make(map[string]*ParsedGroupSubscription)
+}
+
+// ValidateGroupSubscription validates a group subscription
+func (sm *SubscriptionMatcher) ValidateGroupSubscription(about string) error {
+	return sm.ValidateREQFormat(about)
+}
+
+// GetGroupCount returns the number of groups in the matcher
+func (sm *SubscriptionMatcher) GetGroupCount() int {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return len(sm.groups)
+}

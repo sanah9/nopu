@@ -17,18 +17,18 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip29"
-	"github.com/redis/go-redis/v9"
 
 	"nopu/internal/config"
 	"nopu/internal/listener"
 	"nopu/internal/presence"
+	"nopu/internal/queue"
 )
 
 // Server represents the subscription server
 type Server struct {
 	cfg           *config.Config
 	db            *lmdb.LMDBBackend
-	redis         *redis.Client
+	queue         *queue.MemoryQueue
 	relay         *khatru.Relay
 	state         *relay29.State
 	listener      *listener.Listener
@@ -68,18 +68,8 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to initialize LMDB: %v", err)
 	}
 
-	// Initialize Redis
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     cfg.Redis.Addr,
-		Password: cfg.Redis.Password,
-		DB:       cfg.Redis.DB,
-	})
-
-	// Test Redis connection
-	ctx := context.Background()
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		return nil, fmt.Errorf("Redis connection failed: %v", err)
-	}
+	// Initialize memory queue
+	queue := queue.NewMemoryQueue(cfg.MemoryQueue.MaxSize, cfg.MemoryQueue.DedupeTTL)
 
 	// Initialize NIP-29 relay
 	relay, state := khatru29.Init(relay29.Options{
@@ -111,12 +101,12 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	)
 
 	// Initialize event listener
-	eventListener := listener.New(cfg.SubscriptionServer.Listener, rdb)
+	eventListener := listener.New(cfg.SubscriptionServer.Listener, queue)
 
 	server := &Server{
 		cfg:          cfg,
 		db:           db,
-		redis:        rdb,
+		queue:        queue,
 		relay:        relay,
 		state:        state,
 		listener:     eventListener,
@@ -548,9 +538,8 @@ func (s *Server) Shutdown() {
 	if s.db != nil {
 		s.db.Close()
 	}
-	if s.redis != nil {
-		s.redis.Close()
-	}
+	// The queue does not have a direct Close method, so we just log the shutdown
+	log.Printf("Memory queue shutdown")
 }
 
 // Helper functions
