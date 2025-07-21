@@ -32,16 +32,17 @@ type SubscriptionServerConfig struct {
 	// New fields for subscription management
 	MaxSubscriptions int            `yaml:"max_subscriptions"` // Maximum subscriptions per client
 	Listener         ListenerConfig `yaml:"listener"`          // Listener configuration for Nostr relays
+	PushServerURL    string         `yaml:"push_server_url"`   // URL to push server for sending notifications
+	APNS             ApnsConfig     `yaml:"apns"`              // APNs push configuration for direct push
 }
 
 // PushServerConfig push server configuration
 type PushServerConfig struct {
-	Port                  int        `yaml:"port"`
-	SubscriptionServerURL string     `yaml:"subscription_server_url"` // URL to connect to subscription server
-	WorkerCount           int        `yaml:"worker_count"`            // Number of worker goroutines
-	BatchSize             int        `yaml:"batch_size"`              // Batch size for processing messages
-	Apns                  ApnsConfig `yaml:"apns"`                    // APNs push configuration
-	FCM                   FCMConfig  `yaml:"fcm"`                     // FCM push configuration
+	Port        int        `yaml:"port"`
+	WorkerCount int        `yaml:"worker_count"` // Number of worker goroutines
+	BatchSize   int        `yaml:"batch_size"`   // Batch size for processing messages
+	Apns        ApnsConfig `yaml:"apns"`         // APNs push configuration
+	FCM         FCMConfig  `yaml:"fcm"`          // FCM push configuration
 }
 
 // ListenerConfig listener server configuration
@@ -84,6 +85,7 @@ func Load() (*Config, error) {
 			Domain:           "localhost:8080",
 			RelayPrivateKey:  "",
 			MaxSubscriptions: 100,
+			PushServerURL:    "http://localhost:8081",
 			Listener: ListenerConfig{
 				Relays:         []string{"wss://relay.damus.io", "wss://relay.0xchat.com"},
 				Kinds:          []int{1, 7},
@@ -91,12 +93,17 @@ func Load() (*Config, error) {
 				ReconnectDelay: 5 * time.Second,
 				MaxRetries:     0,
 			},
+			APNS: ApnsConfig{
+				BundleID:     "",
+				Production:   false,
+				CertPath:     "",
+				CertPassword: "",
+			},
 		},
 		PushServer: PushServerConfig{
-			Port:                  8081,
-			SubscriptionServerURL: "ws://localhost:8080",
-			WorkerCount:           10,
-			BatchSize:             100,
+			Port:        8081,
+			WorkerCount: 10,
+			BatchSize:   100,
 			Apns: ApnsConfig{
 				BundleID:     "",
 				Production:   false,
@@ -213,9 +220,7 @@ func overrideWithEnv(cfg *Config) {
 	if port := getEnvInt("PUSH_SERVER_PORT", cfg.PushServer.Port); port != cfg.PushServer.Port {
 		cfg.PushServer.Port = port
 	}
-	if url := os.Getenv("SUBSCRIPTION_SERVER_URL"); url != "" {
-		cfg.PushServer.SubscriptionServerURL = url
-	}
+	// Removed subscription server URL as push server no longer connects to subscription server
 	if workerCount := getEnvInt("WORKER_COUNT", cfg.PushServer.WorkerCount); workerCount != cfg.PushServer.WorkerCount {
 		cfg.PushServer.WorkerCount = workerCount
 	}

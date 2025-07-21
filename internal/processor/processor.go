@@ -159,14 +159,14 @@ func (p *Processor) forwardToGroup(ctx context.Context, event *nostr.Event, grou
 
 	// Decide whether to broadcast or push based on online presence
 	online := p.isFirstMemberOnline(group)
+	log.Printf("Group %s online status: %v", group.Address.ID, online)
 
 	if online {
-		if p.state.Relay != nil {
-			p.state.Relay.BroadcastEvent(kind20284Event)
-		} else {
-			log.Printf("Warning: No relay instance available for broadcasting")
-		}
+		// Use the khatru relay to broadcast the event
+		p.relay.BroadcastEvent(kind20284Event)
+		log.Printf("Broadcasted kind 20284 event to group %s", group.Address.ID)
 	} else {
+		log.Printf("Group %s is offline, sending push notification", group.Address.ID)
 		p.pushNotification(ctx, group, event, kind20284Event)
 	}
 
@@ -183,7 +183,10 @@ func (p *Processor) isFirstMemberOnline(group *nip29.Group) bool {
 
 // pushNotification sends an APNs notification to offline members
 func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, originalEvent *nostr.Event, wrappedEvent *nostr.Event) {
+	log.Printf("pushNotification called for group %s, event %s", group.Address.ID, originalEvent.ID[:8])
+
 	if p.apns == nil {
+		log.Printf("APNS client is nil, skipping push notification")
 		return
 	}
 
@@ -191,9 +194,13 @@ func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, or
 	var deviceToken string
 	if parsed, ok := p.subscriptionMatcher.parsedSubscriptions[group.Address.ID]; ok {
 		deviceToken = parsed.SubscriptionID
+		log.Printf("Found device token for group %s: %s", group.Address.ID, deviceToken[:20]+"...")
+	} else {
+		log.Printf("No parsed subscription found for group %s", group.Address.ID)
 	}
 
 	if deviceToken == "" {
+		log.Printf("Device token is empty for group %s", group.Address.ID)
 		return
 	}
 
@@ -224,19 +231,21 @@ func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, or
 
 	body := p.alertBodyForKind(originalEvent.Kind, originalEvent)
 
+	log.Printf("Sending APNs push to %s: title='%s', body='%s'", deviceToken[:20]+"...", title, body)
+
 	// Send push with alert and badge=1
 	resp, err := p.apns.Push(ctx, deviceToken, title, body, custom)
 	if err != nil {
-		log.Printf("Failed to send APNs push to %s: %v", deviceToken, err)
+		log.Printf("Failed to send APNs push to %s: %v", deviceToken[:20]+"...", err)
 		return
 	}
 
 	if resp != nil && !resp.Sent() {
-		log.Printf("APNs push failed for %s: %s", deviceToken, resp.Reason)
+		log.Printf("APNs push failed for %s: %s", deviceToken[:20]+"...", resp.Reason)
 		return
 	}
 
-	log.Printf("Successfully sent APNs push to %s for group %s", deviceToken, group.Address.ID)
+	log.Printf("Successfully sent APNs push to %s for group %s", deviceToken[:20]+"...", group.Address.ID)
 }
 
 // alertBodyForKind generates alert body based on event kind

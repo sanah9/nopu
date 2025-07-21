@@ -20,8 +20,8 @@ func main() {
 	}
 
 	// Validate required configuration
-	if cfg.PushServer.SubscriptionServerURL == "" {
-		log.Fatalf("Subscription server URL not configured. Please set subscription_server_url in config.yaml or SUBSCRIPTION_SERVER_URL environment variable")
+	if cfg.PushServer.Apns.CertPath == "" {
+		log.Printf("Warning: APNs certificate path not configured. Push notifications will not work.")
 	}
 
 	// Create push server

@@ -1,6 +1,6 @@
 # Nopu Project Management
 
-.PHONY: help build build-subscription build-push run-subscription run-push run-both test clean deps
+.PHONY: help build build-subscription build-push run-subscription run-push run-both start test clean deps
 
 # Default target
 help:
@@ -14,6 +14,7 @@ help:
 	@echo "  run-subscription        Run subscription server"
 	@echo "  run-push                Run push server"
 	@echo "  run-both                Run both servers (tmux)"
+	@echo "  start                   Start both services with script"
 	@echo "  test                    Run tests"
 	@echo "  clean                   Clean build files"
 
@@ -61,9 +62,38 @@ run-both:
 		echo "  Terminal 2: make run-push"; \
 	fi
 
+# Start both services with script
+start:
+	@echo "Starting Nopu services with deployment script..."
+	@./deploy.sh
+
 # Run tests
 test:
 	go test -v ./...
+
+# Run integration tests
+test-integration:
+	@echo "Running integration tests..."
+	@./test_integration.sh
+
+# Run test client
+test-client:
+	@echo "Running test client..."
+	@go run test_client.go
+
+# Run all tests
+test-all: test test-integration
+
+# Run benchmarks
+benchmark:
+	go test -bench=. -benchmem ./...
+
+# Run specific service tests
+test-subscription:
+	go test -v -run TestSubscriptionServer ./test_subscription_server.go
+
+test-push:
+	go test -v -run TestPushServer ./test_push_server.go
 
 # Clean build files
 clean:

@@ -8,3 +8,4 @@ config.yaml
 *.pem
 deploy.sh
 kill_nopu.sh
+/bin

@@ -12,21 +12,26 @@ subscription_server:
   relay_name: "Nopu Subscription Server"
   relay_description: "Self-hostable subscription server for push notifications"
   domain: "localhost:8080"
-  relay_private_key: ""
+  relay_private_key: "your_relay_private_key_here"
   max_subscriptions: 100
+  push_server_url: "http://localhost:8081"
+  
+  # APNs configuration for direct push notifications
+  apns:
+    cert_path: "/path/to/your/apns_certificate.p12"
+    cert_password: "your_certificate_password"
+    bundle_id: "com.yourcompany.nopu"
+    production: false  # Set to true for production environment
   
   # Listener configuration for Nostr relays
   listener:
     # List of Nostr Relays to listen to
     relays:
+      - "wss://yabu.me"
       - "wss://relay.damus.io"
-      - "wss://nos.lol"
-      - "wss://relay.nostr.band"
     
     # Event types to listen for
-    kinds:
-      - 1  # Short text notes
-      - 7  # Reactions/likes
+    kinds: [1, 6, 7, 9735]
     
     # Batch processing size
     batch_size: 100
@@ -38,7 +43,6 @@ subscription_server:
 # Push server configuration
 push_server:
   port: 8081
-  subscription_server_url: "ws://localhost:8080"
   worker_count: 10
   batch_size: 100
   
