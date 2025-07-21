@@ -82,8 +82,6 @@ func (p *Processor) Start(ctx context.Context) error {
 
 // loadGroups loads all group information from relay29.State to subscription matcher
 func (p *Processor) loadGroups(ctx context.Context) error {
-	log.Println("Loading groups from relay29.State for subscription matching...")
-
 	// Get all groups from relay29.State
 	groupCount := 0
 	p.state.Groups.Range(func(groupID string, group *relay29.Group) bool {
@@ -91,7 +89,6 @@ func (p *Processor) loadGroups(ctx context.Context) error {
 		if nip29Group != nil {
 			p.subscriptionMatcher.AddGroup(nip29Group)
 			groupCount++
-			log.Printf("Loaded group %s: %s", groupID, nip29Group.Name)
 		}
 		return true // continue iteration
 	})
@@ -159,14 +156,11 @@ func (p *Processor) forwardToGroup(ctx context.Context, event *nostr.Event, grou
 
 	// Decide whether to broadcast or push based on online presence
 	online := p.isFirstMemberOnline(group)
-	log.Printf("Group %s online status: %v", group.Address.ID, online)
 
 	if online {
 		// Use the khatru relay to broadcast the event
 		p.relay.BroadcastEvent(kind20284Event)
-		log.Printf("Broadcasted kind 20284 event to group %s", group.Address.ID)
 	} else {
-		log.Printf("Group %s is offline, sending push notification", group.Address.ID)
 		p.pushNotification(ctx, group, event, kind20284Event)
 	}
 
@@ -183,8 +177,6 @@ func (p *Processor) isFirstMemberOnline(group *nip29.Group) bool {
 
 // pushNotification sends an APNs notification to offline members
 func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, originalEvent *nostr.Event, wrappedEvent *nostr.Event) {
-	log.Printf("pushNotification called for group %s, event %s", group.Address.ID, originalEvent.ID[:8])
-
 	if p.apns == nil {
 		log.Printf("APNS client is nil, skipping push notification")
 		return
@@ -194,13 +186,9 @@ func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, or
 	var deviceToken string
 	if parsed, ok := p.subscriptionMatcher.parsedSubscriptions[group.Address.ID]; ok {
 		deviceToken = parsed.SubscriptionID
-		log.Printf("Found device token for group %s: %s", group.Address.ID, deviceToken[:20]+"...")
-	} else {
-		log.Printf("No parsed subscription found for group %s", group.Address.ID)
 	}
 
 	if deviceToken == "" {
-		log.Printf("Device token is empty for group %s", group.Address.ID)
 		return
 	}
 
@@ -230,8 +218,6 @@ func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, or
 	}
 
 	body := p.alertBodyForKind(originalEvent.Kind, originalEvent)
-
-	log.Printf("Sending APNs push to %s: title='%s', body='%s'", deviceToken[:20]+"...", title, body)
 
 	// Send push with alert and badge=1
 	resp, err := p.apns.Push(ctx, deviceToken, title, body, custom)

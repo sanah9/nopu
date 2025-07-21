@@ -6,22 +6,16 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"nopu/internal/config"
 	"nopu/internal/push"
 )
 
 func main() {
-	// Load configuration for push server only
-	cfg, err := config.LoadPushServerConfig()
+	// Load configuration
+	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
-	}
-
-	// Validate required configuration
-	if cfg.PushServer.Apns.CertPath == "" {
-		log.Printf("Warning: APNs certificate path not configured. Push notifications will not work.")
 	}
 
 	// Create push server
@@ -34,31 +28,21 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start server
-	go func() {
-		if err := server.Start(ctx); err != nil {
-			log.Fatalf("Push server failed: %v", err)
-		}
-	}()
-
-	// Graceful shutdown
+	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
+	go func() {
+		<-sigChan
+		log.Println("Received shutdown signal, shutting down push server...")
+		cancel()
+	}()
+
+	// Start server
 	log.Printf("Push server started on port %d", cfg.PushServer.Port)
-
-	// Wait for shutdown signal
-	<-sigChan
-	log.Println("Received shutdown signal, shutting down push server...")
-
-	// Cancel context to stop all goroutines
-	cancel()
-
-	// Give components time to shutdown gracefully
-	time.Sleep(2 * time.Second)
-
-	// Shutdown server
-	server.Shutdown()
+	if err := server.Start(ctx); err != nil {
+		log.Printf("Server error: %v", err)
+	}
 
 	log.Println("Push server shutdown complete")
 }

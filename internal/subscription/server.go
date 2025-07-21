@@ -221,40 +221,44 @@ func (s *Server) SendPushNotification(ctx context.Context, deviceToken, title, b
 	return nil
 }
 
-// handleEvent processes events received from the relay
+// handleEvent handles events from the relay
 func (s *Server) handleEvent(ctx context.Context, event *nostr.Event) error {
-	log.Printf("Received event: [Kind: %d, ID: %s, PubKey: %s]", event.Kind, event.ID[:8], event.PubKey[:8])
-
-	// Process group-related events
-	if event.Kind == nostr.KindSimpleGroupCreateGroup {
-		log.Printf("Processing group creation event: %s", event.ID[:8])
-		// Extract group ID from tags
-		for _, tag := range event.Tags {
-			if len(tag) >= 2 && tag[0] == "h" {
-				groupID := tag[1]
-				log.Printf("Group ID: %s", groupID)
-				// Refresh groups in processor
-				if err := s.processor.RefreshGroupsFromState(ctx); err != nil {
-					log.Printf("Failed to refresh groups: %v", err)
-				}
-				break
-			}
-		}
-	} else if event.Kind == nostr.KindSimpleGroupEditMetadata {
-		log.Printf("Processing group update event: %s", event.ID[:8])
-		// Extract group ID and about field from tags
-		var groupID, aboutField string
+	// Process group creation events (kind 20284)
+	if event.Kind == 20284 {
+		// Extract group ID from event tags
+		var groupID string
 		for _, tag := range event.Tags {
 			if len(tag) >= 2 && tag[0] == "h" {
 				groupID = tag[1]
-			} else if len(tag) >= 2 && tag[0] == "about" {
-				aboutField = tag[1]
+				break
 			}
 		}
-		log.Printf("Group ID: %s, About: %s", groupID, aboutField)
 
-		// Update group in processor
 		if groupID != "" {
+			// Refresh groups from relay state
+			if err := s.processor.RefreshGroupsFromState(ctx); err != nil {
+				log.Printf("Failed to refresh groups: %v", err)
+			}
+		}
+	}
+
+	// Process group update events (kind 20285)
+	if event.Kind == 20285 {
+		// Extract group ID and about field from event tags
+		var groupID, aboutField string
+		for _, tag := range event.Tags {
+			if len(tag) >= 2 {
+				switch tag[0] {
+				case "h":
+					groupID = tag[1]
+				case "about":
+					aboutField = tag[1]
+				}
+			}
+		}
+
+		if groupID != "" && aboutField != "" {
+			// Refresh groups from relay state
 			if err := s.processor.RefreshGroupsFromState(ctx); err != nil {
 				log.Printf("Failed to refresh groups: %v", err)
 			}

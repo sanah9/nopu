@@ -6,15 +6,25 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"nopu/internal/config"
 )
+
+// PushRequest represents a push notification request
+type PushRequest struct {
+	DeviceToken string                 `json:"device_token"`
+	Title       string                 `json:"title"`
+	Body        string                 `json:"body"`
+	CustomData  map[string]interface{} `json:"custom_data,omitempty"`
+}
 
 // Server represents the push server
 type Server struct {
 	cfg          *config.Config
 	apnsClient   *APNSClient
 	fcmClient    *FCMClient
+	httpServer   *http.Server
 	shutdownChan chan struct{}
 }
 
@@ -28,35 +38,55 @@ type FCMClient struct {
 
 // NewServer creates a new push server
 func NewServer(cfg *config.Config) (*Server, error) {
-	// Create APNS client
-	apnsClient, err := NewAPNSClient(cfg.PushServer.Apns)
-	if err != nil {
-		log.Printf("Failed to initialize APNS client: %v", err)
-	}
-
-	// Create FCM client
-	fcmClient := &FCMClient{
-		ProjectID:          cfg.PushServer.FCM.ProjectID,
-		ServiceAccountPath: cfg.PushServer.FCM.ServiceAccountPath,
-		DefaultTopic:       cfg.PushServer.FCM.DefaultTopic,
+	// Initialize APNS client if configured
+	var apnsClient *APNSClient
+	if cfg.PushServer.Apns.CertPath != "" {
+		var err error
+		apnsClient, err = NewAPNSClient(cfg.PushServer.Apns)
+		if err != nil {
+			log.Printf("Failed to initialize APNS client: %v", err)
+		}
 	}
 
 	server := &Server{
-		cfg:          cfg,
-		apnsClient:   apnsClient,
-		fcmClient:    fcmClient,
+		cfg:        cfg,
+		apnsClient: apnsClient,
+		httpServer: &http.Server{
+			Addr: fmt.Sprintf(":%d", cfg.PushServer.Port),
+		},
 		shutdownChan: make(chan struct{}),
 	}
+
+	// Set up HTTP handlers
+	http.HandleFunc("/push", server.handlePush)
+	http.HandleFunc("/health", server.handleHealth)
 
 	return server, nil
 }
 
 // Start starts the push server
 func (s *Server) Start(ctx context.Context) error {
-	// Start HTTP server for health checks and push endpoints
-	go s.startHTTPServer(ctx)
-
 	log.Printf("Push server started")
+
+	// Start HTTP server
+	go func() {
+		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP server error: %v", err)
+		}
+	}()
+
+	// Wait for context cancellation
+	<-ctx.Done()
+
+	// Shutdown server gracefully
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Failed to shutdown HTTP server: %v", err)
+	}
+
+	log.Printf("Push server shutdown")
 	return nil
 }
 
@@ -79,36 +109,6 @@ func (s *Server) SendPushNotification(ctx context.Context, deviceToken, title, b
 	return nil
 }
 
-// startHTTPServer starts HTTP server for health checks and push endpoints
-func (s *Server) startHTTPServer(ctx context.Context) {
-	http.HandleFunc("/health", s.handleHealth)
-	http.HandleFunc("/push", s.handlePush)
-
-	addr := fmt.Sprintf(":%d", s.cfg.PushServer.Port)
-	log.Printf("Starting HTTP server on %s", addr)
-
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Printf("HTTP server error: %v", err)
-	}
-}
-
-// handleHealth handles health check requests
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-
-	status := "healthy"
-	if s.apnsClient == nil {
-		status = "apns_disconnected"
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status": status,
-		"apns":   s.apnsClient != nil,
-		"fcm":    s.fcmClient != nil,
-	})
-}
-
 // handlePush handles push notification requests
 func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -116,33 +116,56 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		DeviceToken string                 `json:"device_token"`
-		Title       string                 `json:"title"`
-		Body        string                 `json:"body"`
-		CustomData  map[string]interface{} `json:"custom_data,omitempty"`
-	}
-
+	// Parse request body
+	var req PushRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	if req.DeviceToken == "" || req.Title == "" || req.Body == "" {
-		http.Error(w, "Missing required fields", http.StatusBadRequest)
+	// Validate request
+	if req.DeviceToken == "" {
+		http.Error(w, "Device token is required", http.StatusBadRequest)
 		return
 	}
 
-	if err := s.SendPushNotification(r.Context(), req.DeviceToken, req.Title, req.Body, req.CustomData); err != nil {
+	// Send push notification
+	if err := s.sendPushNotification(r.Context(), req); err != nil {
 		log.Printf("Push notification failed: %v", err)
-		http.Error(w, "Push notification failed", http.StatusInternalServerError)
+		http.Error(w, "Failed to send push notification", http.StatusInternalServerError)
 		return
 	}
 
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+}
+
+// sendPushNotification sends a push notification
+func (s *Server) sendPushNotification(ctx context.Context, req PushRequest) error {
+	if s.apnsClient != nil {
+		// Send APNS push
+		resp, err := s.apnsClient.Push(ctx, req.DeviceToken, req.Title, req.Body, req.CustomData)
+		if err != nil {
+			return fmt.Errorf("APNS push failed: %w", err)
+		}
+
+		if resp != nil && !resp.Sent() {
+			return fmt.Errorf("APNS push failed: %s", resp.Reason)
+		}
+
+		log.Printf("Successfully sent APNS push to %s", req.DeviceToken)
+		return nil
+	}
+
+	return fmt.Errorf("no push service configured")
+}
+
+// handleHealth handles health check requests
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status": "sent",
+		"status": "healthy",
 	})
 }
 
