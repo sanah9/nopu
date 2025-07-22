@@ -1,4 +1,4 @@
-package listener
+package subscription
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"nopu/internal/config"
-	"nopu/internal/queue"
 
 	"github.com/nbd-wtf/go-nostr"
 )
@@ -25,13 +24,13 @@ type RelayConnection struct {
 // Listener event listener
 type Listener struct {
 	cfg        config.ListenerConfig
-	queue      *queue.MemoryQueue
+	queue      *MemoryQueue
 	relays     map[string]*RelayConnection
 	relayMutex sync.RWMutex
 }
 
-// New creates a new listener
-func New(cfg config.ListenerConfig, queue *queue.MemoryQueue) *Listener {
+// NewListener creates a new listener
+func NewListener(cfg config.ListenerConfig, queue *MemoryQueue) *Listener {
 	return &Listener{
 		cfg:    cfg,
 		queue:  queue,

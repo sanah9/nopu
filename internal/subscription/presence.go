@@ -1,4 +1,4 @@
-package presence
+package subscription
 
 import (
 	"context"

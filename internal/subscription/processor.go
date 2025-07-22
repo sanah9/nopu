@@ -1,4 +1,4 @@
-package processor
+package subscription
 
 import (
 	"context"
@@ -6,10 +6,6 @@ import (
 	"fmt"
 	"log"
 	"time"
-
-	"nopu/internal/presence"
-	"nopu/internal/push"
-	"nopu/internal/queue"
 
 	"github.com/fiatjaf/khatru"
 	"github.com/fiatjaf/relay29"
@@ -19,24 +15,29 @@ import (
 
 // Processor event processor
 type Processor struct {
-	queue               *queue.MemoryQueue
+	queue               *MemoryQueue
 	relay               *khatru.Relay
 	state               *relay29.State
 	subscriptionMatcher *SubscriptionMatcher
 	relayPrivateKey     string
-	apns                *push.APNSClient
-	consumer            *queue.Consumer
+	consumer            *Consumer
+	subscriptionServer  PushNotificationSender
 }
 
-// New creates a new processor
-func New(queue *queue.MemoryQueue, relay *khatru.Relay, state *relay29.State, relayPrivateKey string, apns *push.APNSClient) *Processor {
+// PushNotificationSender interface for sending push notifications
+type PushNotificationSender interface {
+	SendPushNotification(ctx context.Context, deviceToken, title, body string, customData map[string]interface{}) error
+}
+
+// NewProcessor creates a new processor
+func NewProcessor(queue *MemoryQueue, relay *khatru.Relay, state *relay29.State, relayPrivateKey string, subscriptionServer PushNotificationSender) *Processor {
 	return &Processor{
 		queue:               queue,
 		relay:               relay,
 		state:               state,
 		subscriptionMatcher: NewSubscriptionMatcher(),
 		relayPrivateKey:     relayPrivateKey,
-		apns:                apns,
+		subscriptionServer:  subscriptionServer,
 	}
 }
 
@@ -81,7 +82,7 @@ func (p *Processor) Start(ctx context.Context) error {
 }
 
 // loadGroups loads all group information from relay29.State to subscription matcher
-func (p *Processor) loadGroups(ctx context.Context) error {
+func (p *Processor) loadGroups(_ context.Context) error {
 	// Get all groups from relay29.State
 	groupCount := 0
 	p.state.Groups.Range(func(groupID string, group *relay29.Group) bool {
@@ -93,7 +94,6 @@ func (p *Processor) loadGroups(ctx context.Context) error {
 		return true // continue iteration
 	})
 
-	log.Printf("Loaded %d groups for subscription matching", groupCount)
 	return nil
 }
 
@@ -107,7 +107,7 @@ func (p *Processor) convertRelayGroupToNip29Group(relayGroup *relay29.Group) *ni
 }
 
 // processMessage processes a single message
-func (p *Processor) processMessage(ctx context.Context, message *queue.EventMessage) {
+func (p *Processor) processMessage(ctx context.Context, message *EventMessage) {
 	// Get event from message
 	event := message.Event
 	if event == nil {
@@ -170,15 +170,15 @@ func (p *Processor) forwardToGroup(ctx context.Context, event *nostr.Event, grou
 // isFirstMemberOnline checks if the first member of the group is currently online using presence tracking
 func (p *Processor) isFirstMemberOnline(group *nip29.Group) bool {
 	for member := range group.Members {
-		return presence.IsOnline(member)
+		return IsOnline(member)
 	}
 	return false
 }
 
 // pushNotification sends an APNs notification to offline members
 func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, originalEvent *nostr.Event, wrappedEvent *nostr.Event) {
-	if p.apns == nil {
-		log.Printf("APNS client is nil, skipping push notification")
+	if p.subscriptionServer == nil {
+		log.Printf("Subscription server is nil, skipping push notification")
 		return
 	}
 
@@ -189,6 +189,7 @@ func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, or
 	}
 
 	if deviceToken == "" {
+		log.Printf("No device token found for group %s", group.Address.ID)
 		return
 	}
 
@@ -219,19 +220,14 @@ func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, or
 
 	body := p.alertBodyForKind(originalEvent.Kind, originalEvent)
 
-	// Send push with alert and badge=1
-	resp, err := p.apns.Push(ctx, deviceToken, title, body, custom)
+	// Send push notification via subscription server
+	err = p.subscriptionServer.SendPushNotification(ctx, deviceToken, title, body, custom)
 	if err != nil {
-		log.Printf("Failed to send APNs push to %s: %v", deviceToken[:20]+"...", err)
+		log.Printf("Failed to send push notification to %s: %v", deviceToken[:20]+"...", err)
 		return
 	}
 
-	if resp != nil && !resp.Sent() {
-		log.Printf("APNs push failed for %s: %s", deviceToken[:20]+"...", resp.Reason)
-		return
-	}
-
-	log.Printf("Successfully sent APNs push to %s for group %s", deviceToken[:20]+"...", group.Address.ID)
+	log.Printf("Successfully sent push notification to %s for group %s", deviceToken[:20]+"...", group.Address.ID)
 }
 
 // alertBodyForKind generates alert body based on event kind
@@ -325,4 +321,9 @@ func (p *Processor) GetProcessorStats() map[string]interface{} {
 	stats := p.queue.GetStats()
 	stats["subscription_matcher_groups"] = p.subscriptionMatcher.GetGroupCount()
 	return stats
+}
+
+// GetSubscriptionMatcher returns the subscription matcher
+func (p *Processor) GetSubscriptionMatcher() *SubscriptionMatcher {
+	return p.subscriptionMatcher
 }

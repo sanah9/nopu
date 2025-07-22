@@ -59,7 +59,6 @@ func NewServer(cfg *config.Config) (*Server, error) {
 
 	// Set up HTTP handlers
 	http.HandleFunc("/push", server.handlePush)
-	http.HandleFunc("/health", server.handleHealth)
 
 	return server, nil
 }
@@ -158,15 +157,6 @@ func (s *Server) sendPushNotification(ctx context.Context, req PushRequest) erro
 	}
 
 	return fmt.Errorf("no push service configured")
-}
-
-// handleHealth handles health check requests
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status": "healthy",
-	})
 }
 
 // Shutdown gracefully shuts down the server

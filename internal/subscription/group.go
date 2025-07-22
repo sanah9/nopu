@@ -1,14 +1,12 @@
-package policies
+package subscription
 
 import (
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip29"
-
-	"nopu/internal/processor"
 )
 
 // HandleGroupCreationEvent handles group creation events (kind 20284)
-func HandleGroupCreationEvent(event *nostr.Event, subscriptionMatcher *processor.SubscriptionMatcher) {
+func HandleGroupCreationEvent(event *nostr.Event, subscriptionMatcher *SubscriptionMatcher) {
 	// Extract group ID from event
 	groupID := extractGroupIDFromEvent(event)
 	if groupID == "" {
@@ -27,7 +25,7 @@ func HandleGroupCreationEvent(event *nostr.Event, subscriptionMatcher *processor
 }
 
 // HandleGroupUpdateEvent handles group update events (kind 20285)
-func HandleGroupUpdateEvent(event *nostr.Event, subscriptionMatcher *processor.SubscriptionMatcher) {
+func HandleGroupUpdateEvent(event *nostr.Event, subscriptionMatcher *SubscriptionMatcher) {
 	// Extract group ID from event
 	groupID := extractGroupIDFromEvent(event)
 	if groupID == "" {
@@ -56,7 +54,7 @@ func HandleGroupUpdateEvent(event *nostr.Event, subscriptionMatcher *processor.S
 }
 
 // HandleGroupDeletionEvent handles group deletion events (kind 20286)
-func HandleGroupDeletionEvent(event *nostr.Event, subscriptionMatcher *processor.SubscriptionMatcher) {
+func HandleGroupDeletionEvent(event *nostr.Event, subscriptionMatcher *SubscriptionMatcher) {
 	// Extract group ID from event
 	groupID := extractGroupIDFromEvent(event)
 	if groupID == "" {

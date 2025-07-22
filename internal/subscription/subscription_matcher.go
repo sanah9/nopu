@@ -1,4 +1,4 @@
-package processor
+package subscription
 
 import (
 	"encoding/json"
@@ -78,9 +78,8 @@ func (sm *SubscriptionMatcher) parseAndCacheSubscription(group *nip29.Group) {
 	} else {
 		parsed.Filters = filters
 		parsed.SubscriptionID = subID
-		log.Printf("Successfully parsed REQ for group %s: %v", group.Address.ID, filters)
 	}
-
+	log.Printf("Parsed REQ for group %s: %v", group.Address.ID, parsed)
 	sm.parsedSubscriptions[group.Address.ID] = parsed
 }
 

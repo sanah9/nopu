@@ -18,22 +18,17 @@ import (
 	"github.com/nbd-wtf/go-nostr/nip29"
 
 	"nopu/internal/config"
-	"nopu/internal/listener"
-	"nopu/internal/presence"
-	"nopu/internal/processor"
-	"nopu/internal/push"
-	"nopu/internal/queue"
 )
 
 // Server represents the subscription server
 type Server struct {
 	cfg          *config.Config
 	db           *lmdb.LMDBBackend
-	queue        *queue.MemoryQueue
+	queue        *MemoryQueue
 	relay        *khatru.Relay
 	state        *relay29.State
-	listener     *listener.Listener
-	processor    *processor.Processor
+	listener     *Listener
+	processor    *Processor
 	eventChan    chan *nostr.Event
 	shutdownChan chan struct{}
 	pushClient   *http.Client
@@ -51,7 +46,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	}
 
 	// Initialize memory queue
-	queue := queue.NewMemoryQueue(cfg.MemoryQueue.MaxSize, cfg.MemoryQueue.DedupeTTL)
+	queue := NewMemoryQueue(cfg.MemoryQueue.MaxSize, cfg.MemoryQueue.DedupeTTL)
 
 	// Initialize NIP-29 relay
 	relay, state := khatru29.Init(relay29.Options{
@@ -73,7 +68,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	}
 
 	// Install presence tracking hooks
-	presence.SetupPresenceHooks(relay)
+	SetupPresenceHooks(relay)
 
 	// Configure relay information
 	relay.Info.Name = cfg.SubscriptionServer.RelayName
@@ -93,25 +88,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	)
 
 	// Initialize event listener
-	eventListener := listener.New(cfg.SubscriptionServer.Listener, queue)
-
-	// Initialize APNS client if configured
-	var apnsClient *push.APNSClient
-	if cfg.SubscriptionServer.APNS.CertPath != "" {
-		var err error
-		apnsClient, err = push.NewAPNSClient(cfg.SubscriptionServer.APNS)
-		if err != nil {
-			log.Printf("Warning: Failed to initialize APNS client: %v", err)
-			apnsClient = nil
-		} else {
-			log.Printf("APNS client initialized successfully")
-		}
-	} else {
-		log.Printf("APNS config not provided, push notifications will be disabled")
-	}
-
-	// Initialize processor with APNS client
-	processor := processor.New(queue, relay, state, cfg.SubscriptionServer.RelayPrivateKey, apnsClient)
+	eventListener := NewListener(cfg.SubscriptionServer.Listener, queue)
 
 	server := &Server{
 		cfg:          cfg,
@@ -120,12 +97,16 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		relay:        relay,
 		state:        state,
 		listener:     eventListener,
-		processor:    processor,
+		processor:    nil, // Will be set after server creation
 		eventChan:    make(chan *nostr.Event, 1000),
 		shutdownChan: make(chan struct{}),
 		pushClient:   &http.Client{Timeout: 10 * time.Second},
 		pushURL:      cfg.SubscriptionServer.PushServerURL + "/push",
 	}
+
+	// Initialize processor with subscription server
+	processor := NewProcessor(queue, relay, state, cfg.SubscriptionServer.RelayPrivateKey, server)
+	server.processor = processor
 
 	// Set up event processing
 	relay.OnEventSaved = append(relay.OnEventSaved, func(ctx context.Context, event *nostr.Event) {
@@ -163,7 +144,6 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Set up relay HTTP handler (for standard Nostr protocol)
 	http.HandleFunc("/", s.handleRelay)
-	http.HandleFunc("/health", s.handleHealth)
 
 	return http.ListenAndServe(addr, nil)
 }
@@ -172,18 +152,6 @@ func (s *Server) Start(ctx context.Context) error {
 func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	// Delegate to the khatru relay for standard Nostr protocol handling
 	s.relay.ServeHTTP(w, r)
-}
-
-// handleHealth handles health check requests
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	// The number of clients is now managed by the khatru relay's state.
-	// For now, we'll return a placeholder value since the relay doesn't expose client count.
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":  "healthy",
-		"clients": 0, // Client count is managed by khatru relay
-	})
 }
 
 // SendPushNotification sends a push notification via the push server
@@ -223,46 +191,19 @@ func (s *Server) SendPushNotification(ctx context.Context, deviceToken, title, b
 
 // handleEvent handles events from the relay
 func (s *Server) handleEvent(ctx context.Context, event *nostr.Event) error {
-	// Process group creation events (kind 20284)
-	if event.Kind == 20284 {
-		// Extract group ID from event tags
-		var groupID string
-		for _, tag := range event.Tags {
-			if len(tag) >= 2 && tag[0] == "h" {
-				groupID = tag[1]
-				break
-			}
-		}
-
-		if groupID != "" {
-			// Refresh groups from relay state
-			if err := s.processor.RefreshGroupsFromState(ctx); err != nil {
-				log.Printf("Failed to refresh groups: %v", err)
-			}
-		}
+	// Process NIP-29 group creation events (kind 9007)
+	if event.Kind == 9007 {
+		HandleGroupCreationEvent(event, s.processor.GetSubscriptionMatcher())
 	}
 
-	// Process group update events (kind 20285)
-	if event.Kind == 20285 {
-		// Extract group ID and about field from event tags
-		var groupID, aboutField string
-		for _, tag := range event.Tags {
-			if len(tag) >= 2 {
-				switch tag[0] {
-				case "h":
-					groupID = tag[1]
-				case "about":
-					aboutField = tag[1]
-				}
-			}
-		}
+	// Process NIP-29 group update events (kind 9002)
+	if event.Kind == 9002 {
+		HandleGroupUpdateEvent(event, s.processor.GetSubscriptionMatcher())
+	}
 
-		if groupID != "" && aboutField != "" {
-			// Refresh groups from relay state
-			if err := s.processor.RefreshGroupsFromState(ctx); err != nil {
-				log.Printf("Failed to refresh groups: %v", err)
-			}
-		}
+	// Process NIP-29 group deletion events (kind 9008)
+	if event.Kind == 9008 {
+		HandleGroupDeletionEvent(event, s.processor.GetSubscriptionMatcher())
 	}
 
 	return nil
@@ -271,10 +212,5 @@ func (s *Server) handleEvent(ctx context.Context, event *nostr.Event) error {
 // Shutdown gracefully shuts down the server
 func (s *Server) Shutdown() {
 	close(s.shutdownChan)
-
-	// The khatru relay manages client connections, so we don't need to
-	// explicitly close them here unless the relay itself provides a mechanism
-	// for shutting down client connections.
-	// For now, we just log the shutdown.
-	log.Printf("Memory queue shutdown")
+	log.Printf("Subscription server shutdown")
 }
