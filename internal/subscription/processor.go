@@ -182,7 +182,7 @@ func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, or
 		return
 	}
 
-	// Obtain subscription ID (used here as device token) from cached parsed subscription
+	// Obtain device token from cached parsed subscription
 	var deviceToken string
 	if parsed, ok := p.subscriptionMatcher.parsedSubscriptions[group.Address.ID]; ok {
 		deviceToken = parsed.SubscriptionID
@@ -191,6 +191,17 @@ func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, or
 	if deviceToken == "" {
 		log.Printf("No device token found for group %s", group.Address.ID)
 		return
+	}
+
+	// Check if this is a simulator device token (simulator tokens are invalid for APNS)
+	if len(deviceToken) > 64 {
+		log.Printf("Skipping push notification for simulator device token (length: %d) in group %s", len(deviceToken), group.Address.ID)
+		return
+	}
+
+	// Additional validation for device token format
+	if len(deviceToken) != 64 {
+		log.Printf("Warning: Device token length is %d, expected 64 for APNS. Token: %s...", len(deviceToken), deviceToken[:20])
 	}
 
 	// Serialize wrapped event as JSON string
