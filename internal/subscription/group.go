@@ -33,7 +33,13 @@ func HandleGroupUpdateEvent(event *nostr.Event, subscriptionMatcher *Subscriptio
 	}
 
 	// Parse about field for subscription rules
-	aboutField := event.Content
+	aboutField := ""
+	for _, tag := range event.Tags {
+		if len(tag) >= 2 && tag[0] == "about" {
+			aboutField = tag[1]
+			break
+		}
+	}
 	if aboutField == "" {
 		return
 	}
