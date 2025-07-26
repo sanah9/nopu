@@ -13,10 +13,10 @@ import (
 
 // ParsedGroupSubscription stores parsed group subscription information
 type ParsedGroupSubscription struct {
-	GroupID        string
-	SubscriptionID string
-	Filters        nostr.Filters
-	ParseError     error
+	GroupID     string
+	DeviceToken string
+	Filters     nostr.Filters
+	ParseError  error
 }
 
 // SubscriptionMatcher handles event matching with group subscriptions
@@ -77,7 +77,7 @@ func (sm *SubscriptionMatcher) parseAndCacheSubscription(group *nip29.Group) {
 		log.Printf("Failed to parse REQ for group %s: %v", group.Address.ID, err)
 	} else {
 		parsed.Filters = filters
-		parsed.SubscriptionID = subID
+		parsed.DeviceToken = subID
 	}
 	log.Printf("Parsed REQ for group %s: %v", group.Address.ID, parsed)
 	sm.parsedSubscriptions[group.Address.ID] = parsed
