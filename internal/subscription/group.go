@@ -1,8 +1,9 @@
 package subscription
 
 import (
+	"log"
+
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip29"
 )
 
 // HandleGroupCreationEvent handles group creation events (kind 20284)
@@ -13,15 +14,7 @@ func HandleGroupCreationEvent(event *nostr.Event, subscriptionMatcher *Subscript
 		return
 	}
 
-	// Create new group and add to subscription matcher
-	nip29Group := &nip29.Group{
-		Address: nip29.GroupAddress{
-			ID: groupID,
-		},
-		Name: event.Content,
-	}
-
-	subscriptionMatcher.AddGroup(nip29Group)
+	subscriptionMatcher.AddGroup(groupID)
 }
 
 // HandleGroupUpdateEvent handles group update events (kind 20285)
@@ -40,6 +33,7 @@ func HandleGroupUpdateEvent(event *nostr.Event, subscriptionMatcher *Subscriptio
 			break
 		}
 	}
+
 	if aboutField == "" {
 		return
 	}
@@ -49,14 +43,7 @@ func HandleGroupUpdateEvent(event *nostr.Event, subscriptionMatcher *Subscriptio
 		return
 	}
 
-	// Update group in subscription matcher
-	nip29Group := &nip29.Group{
-		Address: nip29.GroupAddress{
-			ID: groupID,
-		},
-	}
-
-	subscriptionMatcher.UpdateGroup(nip29Group)
+	subscriptionMatcher.UpdateGroup(groupID)
 }
 
 // HandleGroupDeletionEvent handles group deletion events (kind 20286)
@@ -64,6 +51,7 @@ func HandleGroupDeletionEvent(event *nostr.Event, subscriptionMatcher *Subscript
 	// Extract group ID from event
 	groupID := extractGroupIDFromEvent(event)
 	if groupID == "" {
+		log.Printf("Failed to extract group ID from deletion event")
 		return
 	}
 

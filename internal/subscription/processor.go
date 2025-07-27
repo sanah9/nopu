@@ -35,7 +35,7 @@ func NewProcessor(queue *MemoryQueue, relay *khatru.Relay, state *relay29.State,
 		queue:               queue,
 		relay:               relay,
 		state:               state,
-		subscriptionMatcher: NewSubscriptionMatcher(),
+		subscriptionMatcher: NewSubscriptionMatcher(state),
 		relayPrivateKey:     relayPrivateKey,
 		subscriptionServer:  subscriptionServer,
 	}
@@ -86,24 +86,12 @@ func (p *Processor) loadGroups(_ context.Context) error {
 	// Get all groups from relay29.State
 	groupCount := 0
 	p.state.Groups.Range(func(groupID string, group *relay29.Group) bool {
-		nip29Group := p.convertRelayGroupToNip29Group(group)
-		if nip29Group != nil {
-			p.subscriptionMatcher.AddGroup(nip29Group)
-			groupCount++
-		}
+		p.subscriptionMatcher.AddGroup(groupID)
+		groupCount++
 		return true // continue iteration
 	})
 
 	return nil
-}
-
-// convertRelayGroupToNip29Group converts relay29.Group to nip29.Group
-func (p *Processor) convertRelayGroupToNip29Group(relayGroup *relay29.Group) *nip29.Group {
-	if relayGroup == nil {
-		return nil
-	}
-
-	return &relayGroup.Group
 }
 
 // processMessage processes a single message
@@ -169,9 +157,16 @@ func (p *Processor) forwardToGroup(ctx context.Context, event *nostr.Event, grou
 
 // isFirstMemberOnline checks if the first member of the group is currently online using presence tracking
 func (p *Processor) isFirstMemberOnline(group *nip29.Group) bool {
-	for member := range group.Members {
+	// Get the actual group from state to ensure we have the latest member information
+	relayGroup, exists := p.state.Groups.Load(group.Address.ID)
+	if !exists {
+		return false
+	}
+
+	for member := range relayGroup.Members {
 		return IsOnline(member)
 	}
+
 	return false
 }
 
@@ -299,8 +294,8 @@ func parseBolt11Amount(bolt string) int64 {
 }
 
 // AddGroup adds a group to the subscription matcher
-func (p *Processor) AddGroup(group *nip29.Group) {
-	p.subscriptionMatcher.AddGroup(group)
+func (p *Processor) AddGroup(groupID string) {
+	p.subscriptionMatcher.AddGroup(groupID)
 }
 
 // RemoveGroup removes a group from the subscription matcher
@@ -309,8 +304,8 @@ func (p *Processor) RemoveGroup(groupID string) {
 }
 
 // UpdateGroup updates a group in the subscription matcher
-func (p *Processor) UpdateGroup(group *nip29.Group) {
-	p.subscriptionMatcher.UpdateGroup(group)
+func (p *Processor) UpdateGroup(groupID string) {
+	p.subscriptionMatcher.UpdateGroup(groupID)
 }
 
 // RefreshGroupsFromState refreshes groups from relay29.State

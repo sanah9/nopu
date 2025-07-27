@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/fiatjaf/relay29"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip29"
 )
@@ -21,28 +22,30 @@ type ParsedGroupSubscription struct {
 
 // SubscriptionMatcher handles event matching with group subscriptions
 type SubscriptionMatcher struct {
-	groups map[string]*nip29.Group // stores all group information, key is groupID
+	groupIDs map[string]bool // stores only group IDs, key is groupID
 	// Cache parsed REQ to avoid repeated parsing
 	parsedSubscriptions map[string]*ParsedGroupSubscription // key is groupID
 	mu                  sync.RWMutex                        // Protect cache concurrent access
+	state               *relay29.State                      // Reference to relay29 state for getting group info
 }
 
 // NewSubscriptionMatcher creates a new subscription matcher
-func NewSubscriptionMatcher() *SubscriptionMatcher {
+func NewSubscriptionMatcher(state *relay29.State) *SubscriptionMatcher {
 	return &SubscriptionMatcher{
-		groups:              make(map[string]*nip29.Group),
+		groupIDs:            make(map[string]bool),
 		parsedSubscriptions: make(map[string]*ParsedGroupSubscription),
+		state:               state,
 	}
 }
 
 // AddGroup adds a group to the matcher
-func (sm *SubscriptionMatcher) AddGroup(group *nip29.Group) {
+func (sm *SubscriptionMatcher) AddGroup(groupID string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	sm.groups[group.Address.ID] = group
+	sm.groupIDs[groupID] = true
 	// Pre-parse REQ and cache it
-	sm.parseAndCacheSubscription(group)
+	sm.parseAndCacheSubscription(groupID)
 }
 
 // RemoveGroup removes a group from the matcher
@@ -50,37 +53,46 @@ func (sm *SubscriptionMatcher) RemoveGroup(groupID string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	delete(sm.groups, groupID)
+	delete(sm.groupIDs, groupID)
 	// Clear cache
 	delete(sm.parsedSubscriptions, groupID)
 }
 
 // UpdateGroup updates group information
-func (sm *SubscriptionMatcher) UpdateGroup(group *nip29.Group) {
+func (sm *SubscriptionMatcher) UpdateGroup(groupID string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	sm.groups[group.Address.ID] = group
+	sm.groupIDs[groupID] = true
 	// Re-parse and update cache
-	sm.parseAndCacheSubscription(group)
+	sm.parseAndCacheSubscription(groupID)
 }
 
 // parseAndCacheSubscription parses group's REQ and caches the result (internal method, requires lock when called)
-func (sm *SubscriptionMatcher) parseAndCacheSubscription(group *nip29.Group) {
+func (sm *SubscriptionMatcher) parseAndCacheSubscription(groupID string) {
 	parsed := &ParsedGroupSubscription{
-		GroupID: group.Address.ID,
+		GroupID: groupID,
+	}
+
+	// Get group from state
+	group, exists := sm.state.Groups.Load(groupID)
+	if !exists {
+		parsed.ParseError = fmt.Errorf("group not found in state")
+		log.Printf("Group %s not found in state", groupID)
+		sm.parsedSubscriptions[groupID] = parsed
+		return
 	}
 
 	filters, subID, err := sm.parseREQFromAbout(group.About)
 	if err != nil {
 		parsed.ParseError = err
-		log.Printf("Failed to parse REQ for group %s: %v", group.Address.ID, err)
+		log.Printf("Failed to parse REQ for group %s: %v", groupID, err)
 	} else {
 		parsed.Filters = filters
 		parsed.DeviceToken = subID
 	}
-	log.Printf("Parsed REQ for group %s: %v", group.Address.ID, parsed)
-	sm.parsedSubscriptions[group.Address.ID] = parsed
+	log.Printf("Parsed REQ for group %s: %v", groupID, parsed)
+	sm.parsedSubscriptions[groupID] = parsed
 }
 
 // GetMatchingGroups gets all groups that match the event
@@ -90,11 +102,12 @@ func (sm *SubscriptionMatcher) GetMatchingGroups(event *nostr.Event) []*nip29.Gr
 
 	var matchingGroups []*nip29.Group
 
-	for groupID, group := range sm.groups {
+	sm.state.Groups.Range(func(groupID string, group *relay29.Group) bool {
 		if sm.doesEventMatchGroupCached(event, groupID) {
-			matchingGroups = append(matchingGroups, group)
+			matchingGroups = append(matchingGroups, &group.Group)
 		}
-	}
+		return true // continue iteration
+	})
 
 	return matchingGroups
 }
@@ -202,10 +215,10 @@ func (sm *SubscriptionMatcher) GetGroupStats() map[string]interface{} {
 	defer sm.mu.RUnlock()
 
 	stats := make(map[string]interface{})
-	stats["total_groups"] = len(sm.groups)
+	stats["total_groups"] = len(sm.groupIDs)
 
-	groupList := make([]string, 0, len(sm.groups))
-	for groupID := range sm.groups {
+	groupList := make([]string, 0, len(sm.groupIDs))
+	for groupID := range sm.groupIDs {
 		groupList = append(groupList, groupID)
 	}
 	stats["group_ids"] = groupList
@@ -248,7 +261,7 @@ func (sm *SubscriptionMatcher) GetMatchStats(event *nostr.Event) *MatchStats {
 	return &MatchStats{
 		EventID:       event.ID,
 		MatchedGroups: groupIDs,
-		TotalGroups:   len(sm.groups),
+		TotalGroups:   len(sm.groupIDs),
 	}
 }
 
@@ -277,11 +290,12 @@ func (sm *SubscriptionMatcher) RefreshAllCaches() {
 	sm.parsedSubscriptions = make(map[string]*ParsedGroupSubscription)
 
 	// Re-parse all groups
-	for _, group := range sm.groups {
-		sm.parseAndCacheSubscription(group)
-	}
+	sm.state.Groups.Range(func(groupID string, group *relay29.Group) bool {
+		sm.parseAndCacheSubscription(groupID)
+		return true // continue iteration
+	})
 
-	log.Printf("Refreshed subscription caches for %d groups", len(sm.groups))
+	log.Printf("Refreshed subscription caches for %d groups", len(sm.groupIDs))
 }
 
 // ClearGroups clears all groups from the matcher
@@ -289,7 +303,7 @@ func (sm *SubscriptionMatcher) ClearGroups() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	sm.groups = make(map[string]*nip29.Group)
+	sm.groupIDs = make(map[string]bool)
 	sm.parsedSubscriptions = make(map[string]*ParsedGroupSubscription)
 }
 
@@ -302,5 +316,17 @@ func (sm *SubscriptionMatcher) ValidateGroupSubscription(about string) error {
 func (sm *SubscriptionMatcher) GetGroupCount() int {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-	return len(sm.groups)
+	return len(sm.groupIDs)
+}
+
+// GetGroup gets a group by ID
+func (sm *SubscriptionMatcher) GetGroup(groupID string) *nip29.Group {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	group, exists := sm.state.Groups.Load(groupID)
+	if !exists {
+		return nil
+	}
+	return &group.Group
 }
