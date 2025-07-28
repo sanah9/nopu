@@ -33,7 +33,8 @@ type SubscriptionServerConfig struct {
 	MaxSubscriptions int            `yaml:"max_subscriptions"` // Maximum subscriptions per client
 	Listener         ListenerConfig `yaml:"listener"`          // Listener configuration for Nostr relays
 	PushServerURL    string         `yaml:"push_server_url"`   // URL to push server for sending notifications
-	APNS             ApnsConfig     `yaml:"apns"`              // APNs push configuration for direct push
+	// Event 20284 access control configuration
+	Event20284Policy Event20284Policy `yaml:"event_20284_policy"` // Access control policy for 20284 events
 }
 
 // PushServerConfig push server configuration
@@ -69,6 +70,12 @@ type FCMConfig struct {
 	DefaultTopic       string `yaml:"default_topic"`        // Default FCM topic
 }
 
+// Event20284Policy defines access control policy for 20284 events
+type Event20284Policy struct {
+	Whitelist []string `yaml:"whitelist"`  // List of allowed pubkeys (empty means no restriction)
+	RejectAll bool     `yaml:"reject_all"` // If true, reject all 20284 events regardless of whitelist
+}
+
 // Load loads configuration from file and environment variables
 func Load() (*Config, error) {
 	// Default configuration
@@ -86,18 +93,16 @@ func Load() (*Config, error) {
 			RelayPrivateKey:  "",
 			MaxSubscriptions: 100,
 			PushServerURL:    "http://localhost:8081",
+			Event20284Policy: Event20284Policy{
+				Whitelist: nil, // No restriction by default
+				RejectAll: false,
+			},
 			Listener: ListenerConfig{
 				Relays:         []string{"wss://relay.damus.io", "wss://relay.0xchat.com"},
 				Kinds:          []int{1, 7},
 				BatchSize:      100,
 				ReconnectDelay: 5 * time.Second,
 				MaxRetries:     0,
-			},
-			APNS: ApnsConfig{
-				BundleID:     "",
-				Production:   false,
-				CertPath:     "",
-				CertPassword: "",
 			},
 		},
 		PushServer: PushServerConfig{

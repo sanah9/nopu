@@ -20,6 +20,37 @@ import (
 	"nopu/internal/config"
 )
 
+// prevent20284FromNonWhitelistedPubkeys creates a policy function that rejects 20284 events
+// based on the configured policy
+func prevent20284FromNonWhitelistedPubkeys(policy config.Event20284Policy) func(ctx context.Context, event *nostr.Event) (reject bool, msg string) {
+	return func(ctx context.Context, event *nostr.Event) (reject bool, msg string) {
+		// Only check 20284 events
+		if event.Kind != 20284 {
+			return false, ""
+		}
+
+		// If reject_all is true, reject all 20284 events
+		if policy.RejectAll {
+			return true, "20284 events are not allowed (reject_all is enabled)"
+		}
+
+		// If whitelist is empty, no restriction (allow all 20284 events)
+		if len(policy.Whitelist) == 0 {
+			return false, ""
+		}
+
+		// Check if the event pubkey is in the whitelist
+		for _, allowedPubkey := range policy.Whitelist {
+			if event.PubKey == allowedPubkey {
+				return false, "" // Allow the event
+			}
+		}
+
+		// Reject the event if pubkey is not in whitelist
+		return true, fmt.Sprintf("20284 event from pubkey %s is not allowed (not in whitelist)", event.PubKey)
+	}
+}
+
 // Server represents the subscription server
 type Server struct {
 	cfg          *config.Config
@@ -85,6 +116,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		),
 		policies.PreventTimestampsInThePast(60*time.Second),
 		policies.PreventTimestampsInTheFuture(30*time.Second),
+		prevent20284FromNonWhitelistedPubkeys(cfg.SubscriptionServer.Event20284Policy),
 	)
 
 	// Initialize event listener
