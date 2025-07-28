@@ -71,15 +71,9 @@ Field explanations:
 ### 1. Environment Setup
 
 ```bash
-# Install Redis
-# Ubuntu/Debian
-sudo apt-get install redis-server
-
-# macOS
-brew install redis
-
-# Start Redis
-redis-server
+# No external dependencies required!
+# The system now uses in-memory queue instead of Redis
+# This significantly reduces memory usage and simplifies deployment
 ```
 
 ### 2. Configuration
@@ -95,11 +89,31 @@ cp config.yaml.example config.yaml
 # Install dependencies 
 make deps
 
-# Run service
-make run
+# Run both services
+make run-both
 
-# Or run directly
-go run cmd/main.go
+# Or run services separately
+make run-subscription  # Terminal 1
+make run-push         # Terminal 2
+```
+
+### 4. Testing
+
+```bash
+# Run all tests
+make test-all
+
+# Run specific tests
+make test-subscription  # Test subscription server
+make test-push         # Test push server
+
+# Run integration tests
+make test-integration
+
+# Run test client
+make test-client
+
+# For detailed testing guide, see TESTING.md
 ```
 
 ## Development Status
