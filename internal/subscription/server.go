@@ -215,6 +215,14 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		}
 	})
 
+	// Set up ephemeral event processing for 20285 events
+	relay.OnEphemeralEvent = append(relay.OnEphemeralEvent, func(ctx context.Context, event *nostr.Event) {
+		// Process 20285 events (external events)
+		if event.Kind == 20285 {
+			server.handle20285Event(event)
+		}
+	})
+
 	return server, nil
 }
 
@@ -306,11 +314,6 @@ func (s *Server) handleEvent(_ context.Context, event *nostr.Event) error {
 		HandleGroupDeletionEvent(event, s.processor.GetSubscriptionMatcher())
 	}
 
-	// Process external events (kind 20285) - direct forwarding
-	if event.Kind == 20285 {
-		s.handle20285Event(event)
-	}
-
 	return nil
 }
 
@@ -325,9 +328,6 @@ func (s *Server) handle20285Event(event *nostr.Event) {
 
 	// Get all matching groups for the original event
 	matchingGroups := s.processor.GetSubscriptionMatcher().GetMatchingGroups(&originalEvent)
-
-	// Log match result for debugging
-	// s.processor.GetSubscriptionMatcher().LogMatchResult(&originalEvent)
 
 	// Forward 20285 event directly to each matching group
 	for _, group := range matchingGroups {
