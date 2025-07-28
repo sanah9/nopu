@@ -118,6 +118,28 @@ func (p *Processor) processMessage(ctx context.Context, message *EventMessage) {
 	}
 }
 
+// ForwardToGroupDirect forwards event directly to a specific group without 20284 wrapping
+func (p *Processor) ForwardToGroupDirect(ctx context.Context, group *nip29.Group, originalEvent *nostr.Event, wrappedEvent *nostr.Event) error {
+	// Decide whether to broadcast or push based on online presence
+	online := p.isFirstMemberOnline(group)
+
+	if online {
+		// Use the khatru relay to broadcast the event directly
+		p.relay.BroadcastEvent(wrappedEvent)
+	} else {
+		// For offline members, send push notification with the original event
+		// Pass the same event as both original and wrapped for consistency
+		p.pushNotification(ctx, group, originalEvent, wrappedEvent)
+	}
+
+	return nil
+}
+
+// ForwardToGroup forwards event to a specific group (public method)
+func (p *Processor) ForwardToGroup(ctx context.Context, event *nostr.Event, group *nip29.Group) error {
+	return p.forwardToGroup(ctx, event, group)
+}
+
 // forwardToGroup forwards event to a specific group
 func (p *Processor) forwardToGroup(ctx context.Context, event *nostr.Event, group *nip29.Group) error {
 	// Serialize original event to JSON

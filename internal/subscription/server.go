@@ -249,7 +249,7 @@ func (s *Server) SendPushNotification(ctx context.Context, deviceToken, title, b
 }
 
 // handleEvent handles events from the relay
-func (s *Server) handleEvent(ctx context.Context, event *nostr.Event) error {
+func (s *Server) handleEvent(_ context.Context, event *nostr.Event) error {
 	// Process NIP-29 group creation events (kind 9007)
 	if event.Kind == 9007 {
 		HandleGroupCreationEvent(event, s.processor.GetSubscriptionMatcher())
@@ -265,7 +265,36 @@ func (s *Server) handleEvent(ctx context.Context, event *nostr.Event) error {
 		HandleGroupDeletionEvent(event, s.processor.GetSubscriptionMatcher())
 	}
 
+	// Process external events (kind 20285) - direct forwarding
+	if event.Kind == 20285 {
+		s.handle20285Event(event)
+	}
+
 	return nil
+}
+
+// handle20285Event handles external 20285 events by parsing content and matching against groups
+func (s *Server) handle20285Event(event *nostr.Event) {
+	// Parse the original event from content
+	var originalEvent nostr.Event
+	if err := json.Unmarshal([]byte(event.Content), &originalEvent); err != nil {
+		log.Printf("Failed to parse original event from 20285 content: %v", err)
+		return
+	}
+
+	// Get all matching groups for the original event
+	matchingGroups := s.processor.GetSubscriptionMatcher().GetMatchingGroups(&originalEvent)
+
+	// Log match result for debugging
+	// s.processor.GetSubscriptionMatcher().LogMatchResult(&originalEvent)
+
+	// Forward 20285 event directly to each matching group
+	for _, group := range matchingGroups {
+		if err := s.processor.ForwardToGroupDirect(context.Background(), group, &originalEvent, event); err != nil {
+			log.Printf("Failed to forward 20285 event %s to group %s: %v",
+				event.ID[:8], group.Address.ID, err)
+		}
+	}
 }
 
 // Shutdown gracefully shuts down the server
