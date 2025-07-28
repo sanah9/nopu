@@ -20,21 +20,41 @@ import (
 	"nopu/internal/config"
 )
 
-// prevent20284FromNonWhitelistedPubkeys creates a policy function that rejects 20284 events
-// based on the configured policy
-func prevent20284FromNonWhitelistedPubkeys(policy config.Event20284Policy) func(ctx context.Context, event *nostr.Event) (reject bool, msg string) {
+// prevent20284FromExternalSources creates a policy function that rejects 20284 events
+// from external sources (20284 events are for internal forwarding only)
+func prevent20284FromExternalSources(internalRelayPubkey string) func(ctx context.Context, event *nostr.Event) (reject bool, msg string) {
 	return func(ctx context.Context, event *nostr.Event) (reject bool, msg string) {
 		// Only check 20284 events
 		if event.Kind != 20284 {
 			return false, ""
 		}
 
-		// If reject_all is true, reject all 20284 events
-		if policy.RejectAll {
-			return true, "20284 events are not allowed (reject_all is enabled)"
+		// 20284 events are for internal forwarding only
+		// Only allow if it's from the relay itself (internal event)
+		if event.PubKey == internalRelayPubkey {
+			return false, "" // Allow internal events
 		}
 
-		// If whitelist is empty, no restriction (allow all 20284 events)
+		// Reject all external 20284 events
+		return true, "20284 events are for internal use only (external events not allowed)"
+	}
+}
+
+// prevent20285FromNonWhitelistedPubkeys creates a policy function that rejects 20285 events
+// based on the configured policy (20285 events are for external use)
+func prevent20285FromNonWhitelistedPubkeys(policy config.Event20285Policy) func(ctx context.Context, event *nostr.Event) (reject bool, msg string) {
+	return func(ctx context.Context, event *nostr.Event) (reject bool, msg string) {
+		// Only check 20285 events
+		if event.Kind != 20285 {
+			return false, ""
+		}
+
+		// If reject_all is true, reject all 20285 events
+		if policy.RejectAll {
+			return true, "20285 events are not allowed (reject_all is enabled)"
+		}
+
+		// If whitelist is empty, no restriction (allow all 20285 events)
 		if len(policy.Whitelist) == 0 {
 			return false, ""
 		}
@@ -47,7 +67,7 @@ func prevent20284FromNonWhitelistedPubkeys(policy config.Event20284Policy) func(
 		}
 
 		// Reject the event if pubkey is not in whitelist
-		return true, fmt.Sprintf("20284 event from pubkey %s is not allowed (not in whitelist)", event.PubKey)
+		return true, fmt.Sprintf("20285 event from pubkey %s is not allowed (not in whitelist)", event.PubKey)
 	}
 }
 
@@ -88,6 +108,12 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		GroupCreatorDefaultRole: &nip29.Role{Name: "king", Description: "the group's max top admin"},
 	})
 
+	// Get internal relay pubkey for 20284 policy
+	var internalRelayPubkey string
+	if cfg.SubscriptionServer.RelayPrivateKey != "" {
+		internalRelayPubkey, _ = nostr.GetPublicKey(cfg.SubscriptionServer.RelayPrivateKey)
+	}
+
 	// Set up group-related permissions
 	state.AllowAction = func(ctx context.Context, group nip29.Group, role *nip29.Role, action relay29.Action) bool {
 		// Group creators (king role) can do everything
@@ -112,11 +138,12 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		policies.RestrictToSpecifiedKinds(
 			true,
 			9000, 9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009, // Group management
-			9021, 9022, 20284, // Group invitations
+			9021, 9022, 20284, 20285, // Group invitations and external events
 		),
 		policies.PreventTimestampsInThePast(60*time.Second),
 		policies.PreventTimestampsInTheFuture(30*time.Second),
-		prevent20284FromNonWhitelistedPubkeys(cfg.SubscriptionServer.Event20284Policy),
+		prevent20284FromExternalSources(internalRelayPubkey),
+		prevent20285FromNonWhitelistedPubkeys(cfg.SubscriptionServer.Event20285Policy),
 	)
 
 	// Initialize event listener

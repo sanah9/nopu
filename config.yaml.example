@@ -16,13 +16,6 @@ subscription_server:
   max_subscriptions: 100
   push_server_url: "http://localhost:8081"
   
-  # APNs configuration for direct push notifications
-  apns:
-    cert_path: "/path/to/your/apns_certificate.p12"
-    cert_password: "your_certificate_password"
-    bundle_id: "com.yourcompany.nopu"
-    production: false  # Set to true for production environment
-  
   # Listener configuration for Nostr relays
   listener:
     # List of Nostr Relays to listen to
@@ -38,7 +31,17 @@ subscription_server:
 
     # Reconnection settings
     reconnect_delay: 5s  # Reconnection delay time, supported units: ms, s, m, h
-    max_retries: 0      # Maximum retry attempts, 0 means infinite retries 
+    max_retries: 0      # Maximum retry attempts, 0 means infinite retries
+  
+  # Event 20285 access control policy (external events)
+  # 20284 events are for internal use only (not configurable)
+  event_20285_policy:
+    # List of allowed pubkeys (empty means no restriction)
+    whitelist:
+      - "your_trusted_pubkey_1_here"
+      - "your_trusted_pubkey_2_here"
+    # If true, reject all 20285 events regardless of whitelist
+    reject_all: false 
 
 # Push server configuration
 push_server:

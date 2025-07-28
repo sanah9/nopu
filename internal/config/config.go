@@ -33,8 +33,8 @@ type SubscriptionServerConfig struct {
 	MaxSubscriptions int            `yaml:"max_subscriptions"` // Maximum subscriptions per client
 	Listener         ListenerConfig `yaml:"listener"`          // Listener configuration for Nostr relays
 	PushServerURL    string         `yaml:"push_server_url"`   // URL to push server for sending notifications
-	// Event 20284 access control configuration
-	Event20284Policy Event20284Policy `yaml:"event_20284_policy"` // Access control policy for 20284 events
+	// Event 20285 access control policy (external events)
+	Event20285Policy Event20285Policy `yaml:"event_20285_policy"` // Access control policy for 20285 events
 }
 
 // PushServerConfig push server configuration
@@ -70,10 +70,10 @@ type FCMConfig struct {
 	DefaultTopic       string `yaml:"default_topic"`        // Default FCM topic
 }
 
-// Event20284Policy defines access control policy for 20284 events
-type Event20284Policy struct {
+// Event20285Policy defines access control policy for 20285 events
+type Event20285Policy struct {
 	Whitelist []string `yaml:"whitelist"`  // List of allowed pubkeys (empty means no restriction)
-	RejectAll bool     `yaml:"reject_all"` // If true, reject all 20284 events regardless of whitelist
+	RejectAll bool     `yaml:"reject_all"` // If true, reject all 20285 events regardless of whitelist
 }
 
 // Load loads configuration from file and environment variables
@@ -93,7 +93,7 @@ func Load() (*Config, error) {
 			RelayPrivateKey:  "",
 			MaxSubscriptions: 100,
 			PushServerURL:    "http://localhost:8081",
-			Event20284Policy: Event20284Policy{
+			Event20285Policy: Event20285Policy{
 				Whitelist: nil, // No restriction by default
 				RejectAll: false,
 			},
