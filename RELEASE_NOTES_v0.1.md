@@ -16,7 +16,7 @@ Nopu is a completely **free and open source** push service based on the Nostr pr
 - **Memory-based Queue**: Replaced Redis dependency with in-memory queue for simplified deployment
 - **APNs Support**: Full Apple Push Notification service integration
 - **Online Presence Detection**: Real-time client online status tracking
-- **Event Wrapping**: Kind 20284 and 20285 events for secure message delivery
+- **Event Wrapping**: Kind 20284 events for relay event wrapping and Kind 20285 for external event injection
 
 ### Architecture
 - **Modular Design**: Separate subscription and push servers for scalability
@@ -58,16 +58,17 @@ make run-both
 2. **Event Listening**: Server listens to configured relays and kinds
 3. **Filter Matching**: Events are matched against registered group filters
 4. **Message Delivery**: 
-   - Online clients receive `kind 20284` events
-   - Offline clients receive `kind 20285` events via APNs push notifications
+   - Online clients receive `kind 20284` events (wrapped from relay events)
+   - Offline clients receive push notifications via APNs
+   - External systems can inject events via `kind 20285` for processing
 
 ### Event Types
 
 #### Kind 20284 - Online Message Delivery
 The `kind 20284` event wraps the original event as a JSON string and targets a specific NIP-29 group for online clients.
 
-#### Kind 20285 - Offline Push Notification
-The `kind 20285` event is used for offline clients, containing push notification data that gets delivered via APNs.
+#### Kind 20285 - External Event Injection
+The `kind 20285` event is used for external event injection, containing a complete original event in its content that gets processed and matched against client subscriptions.
 
 ## 🔧 Development Status
 
@@ -78,6 +79,8 @@ The `kind 20285` event is used for offline clients, containing push notification
 - APNs push notifications
 - Memory-based queue system
 - Modular server architecture
+- Kind 20284 event wrapping from relay events
+- Kind 20285 external event injection with pubkey whitelist
 
 ### 🚧 In Progress
 - FCM (Firebase Cloud Messaging) support
