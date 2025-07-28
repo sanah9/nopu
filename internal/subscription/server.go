@@ -20,6 +20,33 @@ import (
 	"nopu/internal/config"
 )
 
+// requireHTagForExistingGroupExcept20285 is a custom version that excludes 20285 events from h tag requirement
+func requireHTagForExistingGroupExcept20285(state *relay29.State) func(ctx context.Context, event *nostr.Event) (reject bool, msg string) {
+	return func(ctx context.Context, event *nostr.Event) (reject bool, msg string) {
+		// Skip h tag requirement for 20285 events
+		if event.Kind == 20285 {
+			return false, ""
+		}
+		// this allows us to never check again in any of the other rules if the tag exists and just assume it exists always
+		gtag := event.Tags.GetFirst([]string{"h", ""})
+		if gtag == nil {
+			return true, "missing group (`h`) tag"
+		}
+
+		// skip this check when creating a group
+		if event.Kind == nostr.KindSimpleGroupCreateGroup {
+			return false, ""
+		}
+
+		// otherwise require a group to exist always
+		if group := state.GetGroupFromEvent(event); group == nil {
+			return true, "group '" + (*gtag)[1] + "' doesn't exist"
+		}
+
+		return false, ""
+	}
+}
+
 // prevent20284FromExternalSources creates a policy function that rejects 20284 events
 // from external sources (20284 events are for internal forwarding only)
 func prevent20284FromExternalSources(internalRelayPubkey string) func(ctx context.Context, event *nostr.Event) (reject bool, msg string) {
@@ -48,6 +75,9 @@ func prevent20285FromNonWhitelistedPubkeys(policy config.Event20285Policy) func(
 		if event.Kind != 20285 {
 			return false, ""
 		}
+
+		// 20285 events don't need h tag (they are external events that will be matched against groups)
+		// This allows 20285 events to pass through RequireHTagForExistingGroup policy
 
 		// If reject_all is true, reject all 20285 events
 		if policy.RejectAll {
@@ -108,6 +138,17 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		GroupCreatorDefaultRole: &nip29.Role{Name: "king", Description: "the group's max top admin"},
 	})
 
+	// Clear the original RejectEvent policies and set our custom ones
+	// This allows us to control the order and exclude 20285 events from h tag requirement
+	relay.RejectEvent = []func(context.Context, *nostr.Event) (bool, string){
+		state.RequireModerationEventsToBeRecent,
+		state.RestrictWritesBasedOnGroupRules,
+		state.RestrictInvalidModerationActions,
+		state.PreventWritingOfEventsJustDeleted,
+		state.CheckPreviousTag,
+		requireHTagForExistingGroupExcept20285(state), // Custom h tag policy that excludes 20285 events
+	}
+
 	// Get internal relay pubkey for 20284 policy
 	var internalRelayPubkey string
 	if cfg.SubscriptionServer.RelayPrivateKey != "" {
@@ -131,7 +172,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	relay.Info.Name = cfg.SubscriptionServer.RelayName
 	relay.Info.Description = cfg.SubscriptionServer.RelayDescription
 
-	// Set event restriction policies
+	// Add additional event restriction policies
 	relay.RejectEvent = append(relay.RejectEvent,
 		policies.PreventLargeTags(64),
 		policies.PreventTooManyIndexableTags(6, []int{9005}, nil),
