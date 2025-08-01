@@ -319,19 +319,28 @@ func (s *Server) handleEvent(_ context.Context, event *nostr.Event) error {
 
 // handle20285Event handles external 20285 events by parsing content and matching against groups
 func (s *Server) handle20285Event(event *nostr.Event) {
-	// Parse the original event from content
-	var originalEvent nostr.Event
-	if err := json.Unmarshal([]byte(event.Content), &originalEvent); err != nil {
-		log.Printf("Failed to parse original event from 20285 content: %v", err)
-		return
-	}
+	var matchingGroups []*nip29.Group
 
-	// Get all matching groups for the original event
-	matchingGroups := s.processor.GetSubscriptionMatcher().GetMatchingGroups(&originalEvent)
+	// If content is empty, match against 20285 event itself
+	if event.Content == "" {
+		matchingGroups = s.processor.GetSubscriptionMatcher().GetMatchingGroups(event)
+		log.Printf("20285 event %s has empty content, matching against event itself: %d groups",
+			event.ID[:8], len(matchingGroups))
+	} else {
+		// Parse the original event from content
+		var originalEvent nostr.Event
+		if err := json.Unmarshal([]byte(event.Content), &originalEvent); err != nil {
+			log.Printf("Failed to parse original event from 20285 content: %v", err)
+			return
+		}
+
+		// Get all matching groups for the original event
+		matchingGroups = s.processor.GetSubscriptionMatcher().GetMatchingGroups(&originalEvent)
+	}
 
 	// Forward 20285 event directly to each matching group
 	for _, group := range matchingGroups {
-		if err := s.processor.ForwardToGroupDirect(context.Background(), group, &originalEvent, event); err != nil {
+		if err := s.processor.ForwardToGroupDirect(context.Background(), group, event, event); err != nil {
 			log.Printf("Failed to forward 20285 event %s to group %s: %v",
 				event.ID[:8], group.Address.ID, err)
 		}

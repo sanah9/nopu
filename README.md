@@ -70,7 +70,11 @@ Field explanations:
 
 #### Kind 20285 - External Event Injection
 
-The `kind 20285` event is **received from external sources** (with configurable pubkey whitelist) and contains a complete original event in its content. The subscription server parses the original event from the content and matches it against client subscription filters, then forwards it to appropriate clients.
+The `kind 20285` event is **received from external sources** (with configurable pubkey whitelist). The subscription server handles two scenarios:
+1. **Empty content** - If the 20285 event has empty content, it matches the 20285 event itself against client subscription filters
+2. **Content with original event** - If the 20285 event contains a complete original event in its content, it parses and matches the original event against client subscription filters
+
+The server then forwards the event to all matching clients.
 
 ```jsonc
 {

@@ -9,3 +9,4 @@ config.yaml
 deploy.sh
 kill_nopu.sh
 /bin
+/scripts
