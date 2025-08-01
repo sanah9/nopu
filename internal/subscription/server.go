@@ -324,8 +324,6 @@ func (s *Server) handle20285Event(event *nostr.Event) {
 	// If content is empty, match against 20285 event itself
 	if event.Content == "" {
 		matchingGroups = s.processor.GetSubscriptionMatcher().GetMatchingGroups(event)
-		log.Printf("20285 event %s has empty content, matching against event itself: %d groups",
-			event.ID[:8], len(matchingGroups))
 	} else {
 		// Parse the original event from content
 		var originalEvent nostr.Event
