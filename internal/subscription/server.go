@@ -205,7 +205,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	}
 
 	// Initialize processor with subscription server
-	processor := NewProcessor(queue, relay, state, cfg.SubscriptionServer.RelayPrivateKey, server)
+	processor := NewProcessor(queue, relay, state, cfg.SubscriptionServer.RelayPrivateKey, server, cfg.SubscriptionServer.PushRateLimit)
 	server.processor = processor
 
 	// Set up event processing

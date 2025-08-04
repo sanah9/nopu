@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/fiatjaf/khatru"
@@ -22,6 +23,15 @@ type Processor struct {
 	relayPrivateKey     string
 	consumer            *Consumer
 	subscriptionServer  PushNotificationSender
+	// Push rate limiting with sharded locks for better performance
+	pushRateLimiters []*pushRateLimiter
+	pushRateLimit    time.Duration // Configurable push rate limit
+}
+
+// pushRateLimiter represents a shard for push rate limiting
+type pushRateLimiter struct {
+	lastPushTime map[string]time.Time
+	mutex        sync.RWMutex
 }
 
 // PushNotificationSender interface for sending push notifications
@@ -30,7 +40,15 @@ type PushNotificationSender interface {
 }
 
 // NewProcessor creates a new processor
-func NewProcessor(queue *MemoryQueue, relay *khatru.Relay, state *relay29.State, relayPrivateKey string, subscriptionServer PushNotificationSender) *Processor {
+func NewProcessor(queue *MemoryQueue, relay *khatru.Relay, state *relay29.State, relayPrivateKey string, subscriptionServer PushNotificationSender, pushRateLimit time.Duration) *Processor {
+	// Create 16 shards for push rate limiting to reduce lock contention
+	shards := make([]*pushRateLimiter, 16)
+	for i := 0; i < 16; i++ {
+		shards[i] = &pushRateLimiter{
+			lastPushTime: make(map[string]time.Time),
+		}
+	}
+
 	return &Processor{
 		queue:               queue,
 		relay:               relay,
@@ -38,6 +56,8 @@ func NewProcessor(queue *MemoryQueue, relay *khatru.Relay, state *relay29.State,
 		subscriptionMatcher: NewSubscriptionMatcher(state),
 		relayPrivateKey:     relayPrivateKey,
 		subscriptionServer:  subscriptionServer,
+		pushRateLimiters:    shards,
+		pushRateLimit:       pushRateLimit,
 	}
 }
 
@@ -56,6 +76,9 @@ func (p *Processor) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to create consumer: %v", err)
 	}
 	p.consumer = consumer
+
+	// Start push rate limiting cleanup routine
+	go p.cleanupPushRateLimit()
 
 	// Start processing loop
 	for {
@@ -76,6 +99,32 @@ func (p *Processor) Start(ctx context.Context) error {
 			// Process events
 			for _, message := range messages {
 				p.processMessage(ctx, message)
+			}
+		}
+	}
+}
+
+// cleanupPushRateLimit periodically cleans up old push rate limiting records
+func (p *Processor) cleanupPushRateLimit() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		for _, shard := range p.pushRateLimiters {
+			shard.mutex.Lock()
+			now := time.Now()
+			cleaned := 0
+			for deviceToken, lastPush := range shard.lastPushTime {
+				// Remove records older than 1 hour
+				if now.Sub(lastPush) > time.Hour {
+					delete(shard.lastPushTime, deviceToken)
+					cleaned++
+				}
+			}
+			shard.mutex.Unlock()
+
+			if cleaned > 0 {
+				log.Printf("Cleaned up %d old push rate limiting records from shard", cleaned)
 			}
 		}
 	}
@@ -192,6 +241,16 @@ func (p *Processor) isFirstMemberOnline(group *nip29.Group) bool {
 	return false
 }
 
+// getShardIndex returns the shard index for a device token
+func (p *Processor) getShardIndex(deviceToken string) int {
+	// Simple hash function: sum of first 4 bytes modulo number of shards
+	hash := 0
+	for i := 0; i < 4 && i < len(deviceToken); i++ {
+		hash += int(deviceToken[i])
+	}
+	return hash % len(p.pushRateLimiters)
+}
+
 // pushNotification sends an APNs notification to offline members
 func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, originalEvent *nostr.Event, wrappedEvent *nostr.Event) {
 	if p.subscriptionServer == nil {
@@ -220,6 +279,20 @@ func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, or
 	if len(deviceToken) != 64 {
 		log.Printf("Warning: Device token length is %d, expected 64 for APNS. Token: %s...", len(deviceToken), deviceToken[:20])
 	}
+
+	// Check push rate limiting (configurable interval per device)
+	shardIndex := p.getShardIndex(deviceToken)
+	shard := p.pushRateLimiters[shardIndex]
+	shard.mutex.RLock()
+	if lastPush, exists := shard.lastPushTime[deviceToken]; exists {
+		if time.Since(lastPush) < p.pushRateLimit {
+			shard.mutex.RUnlock()
+			log.Printf("Rate limiting: skipping push for device %s (last push was %v ago, limit is %v)",
+				deviceToken[:20]+"...", time.Since(lastPush), p.pushRateLimit)
+			return
+		}
+	}
+	shard.mutex.RUnlock()
 
 	// Serialize wrapped event as JSON string
 	dataBytes, err := json.Marshal(wrappedEvent)
@@ -254,6 +327,13 @@ func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, or
 		log.Printf("Failed to send push notification to %s: %v", deviceToken[:20]+"...", err)
 		return
 	}
+
+	// Record successful push time for rate limiting
+	shardIndex = p.getShardIndex(deviceToken)
+	shard = p.pushRateLimiters[shardIndex]
+	shard.mutex.Lock()
+	shard.lastPushTime[deviceToken] = time.Now()
+	shard.mutex.Unlock()
 
 	log.Printf("Successfully sent push notification to %s for group %s", deviceToken[:20]+"...", group.Address.ID)
 }

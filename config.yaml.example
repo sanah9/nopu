@@ -15,6 +15,7 @@ subscription_server:
   relay_private_key: "your_relay_private_key_here"
   max_subscriptions: 100
   push_server_url: "http://localhost:8081"
+  push_rate_limit: 10s  # Minimum interval between pushes to same device (10 seconds)
   
   # Listener configuration for Nostr relays
   listener:

@@ -35,6 +35,8 @@ type SubscriptionServerConfig struct {
 	PushServerURL    string         `yaml:"push_server_url"`   // URL to push server for sending notifications
 	// Event 20285 access control policy (external events)
 	Event20285Policy Event20285Policy `yaml:"event_20285_policy"` // Access control policy for 20285 events
+	// Push rate limiting configuration
+	PushRateLimit time.Duration `yaml:"push_rate_limit"` // Minimum interval between pushes to same device
 }
 
 // PushServerConfig push server configuration
@@ -93,6 +95,7 @@ func Load() (*Config, error) {
 			RelayPrivateKey:  "",
 			MaxSubscriptions: 100,
 			PushServerURL:    "http://localhost:8081",
+			PushRateLimit:    10 * time.Second, // Default 10 seconds between pushes to same device
 			Event20285Policy: Event20285Policy{
 				Whitelist: nil, // No restriction by default
 				RejectAll: false,
@@ -219,6 +222,14 @@ func overrideWithEnv(cfg *Config) {
 	}
 	if maxSubscriptions := getEnvInt("MAX_SUBSCRIPTIONS", cfg.SubscriptionServer.MaxSubscriptions); maxSubscriptions != cfg.SubscriptionServer.MaxSubscriptions {
 		cfg.SubscriptionServer.MaxSubscriptions = maxSubscriptions
+	}
+	if pushServerURL := os.Getenv("PUSH_SERVER_URL"); pushServerURL != "" {
+		cfg.SubscriptionServer.PushServerURL = pushServerURL
+	}
+	if pushRateLimit := os.Getenv("PUSH_RATE_LIMIT"); pushRateLimit != "" {
+		if duration, err := time.ParseDuration(pushRateLimit); err == nil {
+			cfg.SubscriptionServer.PushRateLimit = duration
+		}
 	}
 
 	// Push server configuration
