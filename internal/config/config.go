@@ -46,6 +46,7 @@ type PushServerConfig struct {
 	BatchSize   int        `yaml:"batch_size"`   // Batch size for processing messages
 	Apns        ApnsConfig `yaml:"apns"`         // APNs push configuration
 	FCM         FCMConfig  `yaml:"fcm"`          // FCM push configuration
+	Push        PushConfig `yaml:"push"`         // Common push configuration
 }
 
 // ListenerConfig listener server configuration
@@ -70,6 +71,11 @@ type FCMConfig struct {
 	ProjectID          string `yaml:"project_id"`           // Firebase project ID
 	ServiceAccountPath string `yaml:"service_account_path"` // Path to service account JSON
 	DefaultTopic       string `yaml:"default_topic"`        // Default FCM topic
+}
+
+// PushConfig common push configuration
+type PushConfig struct {
+	SilentPush bool `yaml:"silent_push"` // Whether to send silent push notifications by default
 }
 
 // Event20285Policy defines access control policy for 20285 events
@@ -122,6 +128,9 @@ func Load() (*Config, error) {
 				ProjectID:          "",
 				ServiceAccountPath: "",
 				DefaultTopic:       "nopu_notifications",
+			},
+			Push: PushConfig{
+				SilentPush: false, // Default to regular push notifications
 			},
 		},
 	}
@@ -267,6 +276,11 @@ func overrideWithEnv(cfg *Config) {
 	}
 	if defaultTopic := os.Getenv("FCM_DEFAULT_TOPIC"); defaultTopic != "" {
 		cfg.PushServer.FCM.DefaultTopic = defaultTopic
+	}
+
+	// Push configuration
+	if silentPush := os.Getenv("PUSH_SILENT"); silentPush != "" {
+		cfg.PushServer.Push.SilentPush = silentPush == "true"
 	}
 }
 

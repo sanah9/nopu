@@ -17,6 +17,7 @@ type PushRequest struct {
 	Title       string                 `json:"title"`
 	Body        string                 `json:"body"`
 	CustomData  map[string]interface{} `json:"custom_data,omitempty"`
+	Silent      bool                   `json:"silent,omitempty"` // Whether to send silent push
 }
 
 // Server represents the push server
@@ -98,6 +99,12 @@ func (s *Server) Start(ctx context.Context) error {
 // SendPushNotification sends a push notification
 // Automatically detects whether to use APNS or FCM based on device token format
 func (s *Server) SendPushNotification(ctx context.Context, deviceToken, title, body string, customData map[string]interface{}) error {
+	return s.SendPushNotificationWithSilent(ctx, deviceToken, title, body, customData, s.cfg.PushServer.Push.SilentPush)
+}
+
+// SendPushNotificationWithSilent sends a push notification with silent push option
+// Automatically detects whether to use APNS or FCM based on device token format
+func (s *Server) SendPushNotificationWithSilent(ctx context.Context, deviceToken, title, body string, customData map[string]interface{}, silent bool) error {
 	// Detect push service based on device token format
 	pushType := s.detectPushService(deviceToken)
 
@@ -107,12 +114,16 @@ func (s *Server) SendPushNotification(ctx context.Context, deviceToken, title, b
 			return fmt.Errorf("FCM client not initialized")
 		}
 
-		_, err := s.fcmClient.Push(ctx, deviceToken, title, body, customData)
+		_, err := s.fcmClient.PushWithSilent(ctx, deviceToken, title, body, customData, silent)
 		if err != nil {
 			return fmt.Errorf("failed to send FCM push: %w", err)
 		}
 
-		log.Printf("Successfully sent FCM push to %s", deviceToken)
+		pushType := "regular"
+		if silent {
+			pushType = "silent"
+		}
+		log.Printf("Successfully sent FCM %s push to %s", pushType, deviceToken)
 		return nil
 
 	case "apns":
@@ -120,7 +131,7 @@ func (s *Server) SendPushNotification(ctx context.Context, deviceToken, title, b
 			return fmt.Errorf("APNS client not initialized")
 		}
 
-		resp, err := s.apnsClient.Push(ctx, deviceToken, title, body, customData)
+		resp, err := s.apnsClient.PushWithSilent(ctx, deviceToken, title, body, customData, silent)
 		if err != nil {
 			return fmt.Errorf("failed to send APNS push: %w", err)
 		}
@@ -129,7 +140,11 @@ func (s *Server) SendPushNotification(ctx context.Context, deviceToken, title, b
 			return fmt.Errorf("APNS push failed: %s", resp.Reason)
 		}
 
-		log.Printf("Successfully sent APNS push to %s", deviceToken)
+		pushType := "regular"
+		if silent {
+			pushType = "silent"
+		}
+		log.Printf("Successfully sent APNS %s push to %s", pushType, deviceToken)
 		return nil
 
 	default:
@@ -188,7 +203,9 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 
 // sendPushNotification sends a push notification
 func (s *Server) sendPushNotification(ctx context.Context, req PushRequest) error {
-	return s.SendPushNotification(ctx, req.DeviceToken, req.Title, req.Body, req.CustomData)
+	// Use request silent flag if provided, otherwise use default from config
+	silent := req.Silent
+	return s.SendPushNotificationWithSilent(ctx, req.DeviceToken, req.Title, req.Body, req.CustomData, silent)
 }
 
 // Shutdown gracefully shuts down the server

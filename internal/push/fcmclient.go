@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"log"
 
-	"firebase.google.com/go/v4"
+	"nopu/internal/config"
+
+	firebase "firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/messaging"
 	"google.golang.org/api/option"
-	"nopu/internal/config"
 )
 
 // FCMClient wraps Firebase Cloud Messaging client for sending push notifications.
@@ -22,8 +23,8 @@ import (
 //   resp, err := fcmCli.Push(ctx, deviceToken, "Title", "Body", nil)
 
 type FCMClient struct {
-	client      *messaging.Client
-	projectID   string
+	client       *messaging.Client
+	projectID    string
 	defaultTopic string
 }
 
@@ -65,10 +66,16 @@ func NewFCMClient(cfg config.FCMConfig) (*FCMClient, error) {
 // Push sends a notification to a specific device token.
 // customData can be nil when no extra fields are required.
 func (f *FCMClient) Push(ctx context.Context, deviceToken, title, body string, customData map[string]interface{}) (*FCMResponse, error) {
+	return f.PushWithSilent(ctx, deviceToken, title, body, customData, false)
+}
+
+// PushWithSilent sends a notification to a specific device token with silent push option.
+// customData can be nil when no extra fields are required.
+func (f *FCMClient) PushWithSilent(ctx context.Context, deviceToken, title, body string, customData map[string]interface{}, silent bool) (*FCMResponse, error) {
 	if f.client == nil {
 		return nil, fmt.Errorf("FCM client not initialized")
 	}
-	
+
 	if deviceToken == "" {
 		return nil, fmt.Errorf("device token is empty")
 	}
@@ -76,19 +83,24 @@ func (f *FCMClient) Push(ctx context.Context, deviceToken, title, body string, c
 	// Build message
 	message := &messaging.Message{
 		Token: deviceToken,
-		Notification: &messaging.Notification{
+		Data:  make(map[string]string),
+	}
+
+	if !silent {
+		// Regular push with notification
+		message.Notification = &messaging.Notification{
 			Title: title,
 			Body:  body,
-		},
-		Android: &messaging.AndroidConfig{
+		}
+		message.Android = &messaging.AndroidConfig{
 			Notification: &messaging.AndroidNotification{
 				Title: title,
 				Body:  body,
 				Sound: "default",
 			},
 			Priority: "high",
-		},
-		APNS: &messaging.APNSConfig{
+		}
+		message.APNS = &messaging.APNSConfig{
 			Payload: &messaging.APNSPayload{
 				Aps: &messaging.Aps{
 					Alert: &messaging.ApsAlert{
@@ -102,8 +114,22 @@ func (f *FCMClient) Push(ctx context.Context, deviceToken, title, body string, c
 			Headers: map[string]string{
 				"apns-priority": "10",
 			},
-		},
-		Data: make(map[string]string),
+		}
+	} else {
+		// Silent push - data only
+		message.Android = &messaging.AndroidConfig{
+			Priority: "high",
+		}
+		message.APNS = &messaging.APNSConfig{
+			Payload: &messaging.APNSPayload{
+				Aps: &messaging.Aps{
+					ContentAvailable: true,
+				},
+			},
+			Headers: map[string]string{
+				"apns-priority": "10",
+			},
+		}
 	}
 
 	// Add custom data
@@ -120,7 +146,7 @@ func (f *FCMClient) Push(ctx context.Context, deviceToken, title, body string, c
 	}
 
 	log.Printf("Successfully sent FCM message to %s, message ID: %s", deviceToken, resp)
-	
+
 	return &FCMResponse{
 		SuccessCount: 1,
 		FailureCount: 0,
@@ -133,7 +159,7 @@ func (f *FCMClient) PushToTopic(ctx context.Context, topic, title, body string, 
 	if f.client == nil {
 		return nil, fmt.Errorf("FCM client not initialized")
 	}
-	
+
 	if topic == "" {
 		topic = f.defaultTopic
 	}
@@ -185,7 +211,7 @@ func (f *FCMClient) PushToTopic(ctx context.Context, topic, title, body string, 
 	}
 
 	log.Printf("Successfully sent FCM topic message to %s, message ID: %s", topic, resp)
-	
+
 	return &FCMResponse{
 		SuccessCount: 1,
 		FailureCount: 0,
@@ -197,7 +223,7 @@ func (f *FCMClient) PushToMultipleTokens(ctx context.Context, deviceTokens []str
 	if f.client == nil {
 		return nil, fmt.Errorf("FCM client not initialized")
 	}
-	
+
 	if len(deviceTokens) == 0 {
 		return nil, fmt.Errorf("device tokens list is empty")
 	}
@@ -262,7 +288,7 @@ func (f *FCMClient) PushToMultipleTokens(ctx context.Context, deviceTokens []str
 	}
 
 	log.Printf("FCM batch send completed: %d success, %d failure", batchResp.SuccessCount, batchResp.FailureCount)
-	
+
 	return &FCMResponse{
 		SuccessCount: batchResp.SuccessCount,
 		FailureCount: batchResp.FailureCount,
@@ -275,7 +301,7 @@ func (f *FCMClient) SubscribeToTopic(ctx context.Context, deviceTokens []string,
 	if f.client == nil {
 		return fmt.Errorf("FCM client not initialized")
 	}
-	
+
 	if len(deviceTokens) == 0 {
 		return fmt.Errorf("device tokens list is empty")
 	}
@@ -311,7 +337,7 @@ func (f *FCMClient) UnsubscribeFromTopic(ctx context.Context, deviceTokens []str
 	if f.client == nil {
 		return fmt.Errorf("FCM client not initialized")
 	}
-	
+
 	if len(deviceTokens) == 0 {
 		return fmt.Errorf("device tokens list is empty")
 	}
@@ -340,4 +366,4 @@ func (f *FCMClient) UnsubscribeFromTopic(ctx context.Context, deviceTokens []str
 
 	log.Printf("Successfully unsubscribed %d devices from topic %s", resp.SuccessCount, topic)
 	return nil
-} 
+}

@@ -54,11 +54,24 @@ func NewAPNSClient(cfg config.ApnsConfig) (*APNSClient, error) {
 // Push sends a notification.
 // customData can be nil when no extra fields are required.
 func (a *APNSClient) Push(ctx context.Context, deviceToken, alertTitle, alertBody string, customData map[string]interface{}) (*apns2.Response, error) {
+	return a.PushWithSilent(ctx, deviceToken, alertTitle, alertBody, customData, false)
+}
+
+// PushWithSilent sends a notification with silent push option.
+// customData can be nil when no extra fields are required.
+func (a *APNSClient) PushWithSilent(ctx context.Context, deviceToken, alertTitle, alertBody string, customData map[string]interface{}, silent bool) (*apns2.Response, error) {
 	if deviceToken == "" {
 		return nil, fmt.Errorf("device token is empty")
 	}
 
-	pld := payload.NewPayload().AlertTitle(alertTitle).AlertBody(alertBody).Sound("default").ContentAvailable()
+	var pld *payload.Payload
+	if silent {
+		// Silent push - no alert, just content-available
+		pld = payload.NewPayload().ContentAvailable()
+	} else {
+		// Regular push with alert
+		pld = payload.NewPayload().AlertTitle(alertTitle).AlertBody(alertBody).Sound("default").ContentAvailable()
+	}
 
 	// extract badge if provided
 	if badgeVal, ok := customData["badge"]; ok {

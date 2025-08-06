@@ -61,4 +61,8 @@ push_server:
   fcm:
     project_id: "your-firebase-project-id"
     service_account_path: "path/to/service-account.json"
-    default_topic: "nopu_notifications" 
+    default_topic: "nopu_notifications"
+  
+  # Common push configuration
+  push:
+    silent_push: false  # Whether to send silent push notifications by default 
