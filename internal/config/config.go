@@ -30,9 +30,9 @@ type SubscriptionServerConfig struct {
 	Domain           string `yaml:"domain"`
 	RelayPrivateKey  string `yaml:"relay_private_key"`
 	// New fields for subscription management
-	MaxSubscriptions int            `yaml:"max_subscriptions"` // Maximum subscriptions per client
-	Listener         ListenerConfig `yaml:"listener"`          // Listener configuration for Nostr relays
-	PushServerURL    string         `yaml:"push_server_url"`   // URL to push server for sending notifications
+	MaxSubscriptions int             `yaml:"max_subscriptions"` // Maximum subscriptions per client
+	Listener         *ListenerConfig `yaml:"listener"`          // Listener configuration for Nostr relays (optional)
+	PushServerURL    string          `yaml:"push_server_url"`   // URL to push server for sending notifications
 	// Event 20285 access control policy (external events)
 	Event20285Policy Event20285Policy `yaml:"event_20285_policy"` // Access control policy for 20285 events
 	// Push rate limiting configuration
@@ -106,13 +106,8 @@ func Load() (*Config, error) {
 				Whitelist: nil, // No restriction by default
 				RejectAll: false,
 			},
-			Listener: ListenerConfig{
-				Relays:         []string{"wss://relay.damus.io", "wss://relay.0xchat.com"},
-				Kinds:          []int{1, 7},
-				BatchSize:      100,
-				ReconnectDelay: 5 * time.Second,
-				MaxRetries:     0,
-			},
+			// Listener is optional - no default value
+			Listener: nil,
 		},
 		PushServer: PushServerConfig{
 			Port:        8081,

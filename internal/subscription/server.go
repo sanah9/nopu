@@ -142,7 +142,13 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	// This allows us to control the order and exclude 20285 events from h tag requirement
 	relay.RejectEvent = []func(context.Context, *nostr.Event) (bool, string){
 		state.RequireModerationEventsToBeRecent,
-		state.RestrictWritesBasedOnGroupRules,
+		// Skip group rules check for 20285 events (external events)
+		func(ctx context.Context, event *nostr.Event) (bool, string) {
+			if event.Kind == 20285 {
+				return false, "" // Allow 20285 events to skip group rules check
+			}
+			return state.RestrictWritesBasedOnGroupRules(ctx, event)
+		},
 		state.RestrictInvalidModerationActions,
 		state.PreventWritingOfEventsJustDeleted,
 		state.CheckPreviousTag,
@@ -187,8 +193,14 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		prevent20285FromNonWhitelistedPubkeys(cfg.SubscriptionServer.Event20285Policy),
 	)
 
-	// Initialize event listener
-	eventListener := NewListener(cfg.SubscriptionServer.Listener, queue)
+	// Initialize event listener (only if configured)
+	var eventListener *Listener
+	if cfg.SubscriptionServer.Listener != nil && len(cfg.SubscriptionServer.Listener.Relays) > 0 {
+		eventListener = NewListener(*cfg.SubscriptionServer.Listener, queue)
+		log.Printf("Event listener initialized with %d relays", len(cfg.SubscriptionServer.Listener.Relays))
+	} else {
+		log.Println("Event listener not configured or no relays specified - skipping listener initialization")
+	}
 
 	server := &Server{
 		cfg:          cfg,
@@ -228,14 +240,18 @@ func NewServer(cfg *config.Config) (*Server, error) {
 
 // Start starts the subscription server
 func (s *Server) Start(ctx context.Context) error {
-	// Start event listener
-	go func() {
-		if err := s.listener.Start(ctx); err != nil {
-			if ctx.Err() == nil {
-				log.Printf("Event listener error: %v", err)
+	// Start event listener (only if configured)
+	if s.listener != nil {
+		go func() {
+			if err := s.listener.Start(ctx); err != nil {
+				if ctx.Err() == nil {
+					log.Printf("Event listener error: %v", err)
+				}
 			}
-		}
-	}()
+		}()
+	} else {
+		log.Println("Event listener not configured - skipping listener startup")
+	}
 
 	// Start event processor
 	go func() {

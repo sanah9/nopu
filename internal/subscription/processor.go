@@ -269,17 +269,6 @@ func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, or
 		return
 	}
 
-	// Check if this is a simulator device token (simulator tokens are invalid for APNS)
-	if len(deviceToken) > 64 {
-		log.Printf("Skipping push notification for simulator device token (length: %d) in group %s", len(deviceToken), group.Address.ID)
-		return
-	}
-
-	// Additional validation for device token format
-	if len(deviceToken) != 64 {
-		log.Printf("Warning: Device token length is %d, expected 64 for APNS. Token: %s...", len(deviceToken), deviceToken[:20])
-	}
-
 	// Check push rate limiting (configurable interval per device)
 	shardIndex := p.getShardIndex(deviceToken)
 	shard := p.pushRateLimiters[shardIndex]
@@ -288,7 +277,7 @@ func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, or
 		if time.Since(lastPush) < p.pushRateLimit {
 			shard.mutex.RUnlock()
 			log.Printf("Rate limiting: skipping push for device %s (last push was %v ago, limit is %v)",
-				deviceToken[:20]+"...", time.Since(lastPush), p.pushRateLimit)
+				deviceToken, time.Since(lastPush), p.pushRateLimit)
 			return
 		}
 	}
@@ -315,16 +304,13 @@ func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, or
 	}
 
 	title := group.Name
-	if title == "" {
-		title = "Nopu"
-	}
 
 	body := p.alertBodyForKind(originalEvent.Kind, originalEvent)
 
 	// Send push notification via subscription server
 	err = p.subscriptionServer.SendPushNotification(ctx, deviceToken, title, body, custom)
 	if err != nil {
-		log.Printf("Failed to send push notification to %s: %v", deviceToken[:20]+"...", err)
+		log.Printf("Failed to send push notification to %s: %v", deviceToken, err)
 		return
 	}
 
@@ -335,7 +321,7 @@ func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, or
 	shard.lastPushTime[deviceToken] = time.Now()
 	shard.mutex.Unlock()
 
-	log.Printf("Successfully sent push notification to %s for group %s", deviceToken[:20]+"...", group.Address.ID)
+	log.Printf("Successfully sent push notification to %s for group %s", deviceToken, group.Address.ID)
 }
 
 // alertBodyForKind generates alert body based on event kind
