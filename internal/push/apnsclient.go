@@ -66,14 +66,6 @@ func (a *APNSClient) PushWithSilent(ctx context.Context, deviceToken, alertTitle
 		return nil, fmt.Errorf("device token is empty")
 	}
 
-	// Log the push notification content
-	pushType := "regular"
-	if silent {
-		pushType = "silent"
-	}
-	log.Printf("Sending APNS %s push - Device: %s, Title: %s, Body: %s, CustomData: %+v",
-		pushType, deviceToken, alertTitle, alertBody, customData)
-
 	var pld *payload.Payload
 	if silent {
 		// Silent push - no alert, just content-available
