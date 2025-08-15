@@ -94,13 +94,13 @@ func Load() (*Config, error) {
 			BufferSize: 1000,           // 1k buffer per consumer
 		},
 		SubscriptionServer: SubscriptionServerConfig{
-			Port:             8080,
+			Port:             9090,
 			RelayName:        "Nopu Subscription Server",
 			RelayDescription: "Self-hostable subscription server for push notifications",
-			Domain:           "localhost:8080",
+			Domain:           "localhost:9090",
 			RelayPrivateKey:  "",
 			MaxSubscriptions: 100,
-			PushServerURL:    "http://localhost:8081",
+			PushServerURL:    "http://localhost:9091",
 			PushRateLimit:    10 * time.Second, // Default 10 seconds between pushes to same device
 			Event20285Policy: Event20285Policy{
 				Whitelist: nil, // No restriction by default
@@ -110,7 +110,7 @@ func Load() (*Config, error) {
 			Listener: nil,
 		},
 		PushServer: PushServerConfig{
-			Port:        8081,
+			Port:        9091,
 			WorkerCount: 10,
 			BatchSize:   100,
 			Apns: ApnsConfig{
