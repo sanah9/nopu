@@ -12,6 +12,8 @@ import (
 	"github.com/fiatjaf/relay29"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip29"
+
+	"nopu/internal/config"
 )
 
 // Processor event processor
@@ -25,7 +27,8 @@ type Processor struct {
 	subscriptionServer  PushNotificationSender
 	// Push rate limiting with sharded locks for better performance
 	pushRateLimiters []*pushRateLimiter
-	pushRateLimit    time.Duration // Configurable push rate limit
+	pushRateLimit    time.Duration  // Configurable push rate limit
+	cfg              *config.Config // Configuration for silent push settings
 }
 
 // pushRateLimiter represents a shard for push rate limiting
@@ -37,10 +40,11 @@ type pushRateLimiter struct {
 // PushNotificationSender interface for sending push notifications
 type PushNotificationSender interface {
 	SendPushNotification(ctx context.Context, deviceToken, title, body string, customData map[string]interface{}) error
+	SendPushNotificationWithSilent(ctx context.Context, deviceToken, title, body string, customData map[string]interface{}, silent bool) error
 }
 
 // NewProcessor creates a new processor
-func NewProcessor(queue *MemoryQueue, relay *khatru.Relay, state *relay29.State, relayPrivateKey string, subscriptionServer PushNotificationSender, pushRateLimit time.Duration) *Processor {
+func NewProcessor(queue *MemoryQueue, relay *khatru.Relay, state *relay29.State, relayPrivateKey string, subscriptionServer PushNotificationSender, pushRateLimit time.Duration, cfg *config.Config) *Processor {
 	// Create 16 shards for push rate limiting to reduce lock contention
 	shards := make([]*pushRateLimiter, 16)
 	for i := 0; i < 16; i++ {
@@ -58,6 +62,7 @@ func NewProcessor(queue *MemoryQueue, relay *khatru.Relay, state *relay29.State,
 		subscriptionServer:  subscriptionServer,
 		pushRateLimiters:    shards,
 		pushRateLimit:       pushRateLimit,
+		cfg:                 cfg,
 	}
 }
 
@@ -307,8 +312,11 @@ func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, or
 
 	body := p.alertBodyForKind(originalEvent.Kind, originalEvent)
 
-	// Send push notification via subscription server
-	err = p.subscriptionServer.SendPushNotification(ctx, deviceToken, title, body, custom)
+	// Use silent push configuration from config
+	silent := p.cfg.PushServer.Push.SilentPush
+
+	// Send push notification via subscription server with silent option
+	err = p.subscriptionServer.SendPushNotificationWithSilent(ctx, deviceToken, title, body, custom, silent)
 	if err != nil {
 		log.Printf("Failed to send push notification to %s: %v", deviceToken, err)
 		return

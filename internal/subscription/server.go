@@ -217,7 +217,7 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	}
 
 	// Initialize processor with subscription server
-	processor := NewProcessor(queue, relay, state, cfg.SubscriptionServer.RelayPrivateKey, server, cfg.SubscriptionServer.PushRateLimit)
+	processor := NewProcessor(queue, relay, state, cfg.SubscriptionServer.RelayPrivateKey, server, cfg.SubscriptionServer.PushRateLimit, cfg)
 	server.processor = processor
 
 	// Set up event processing
@@ -310,6 +310,42 @@ func (s *Server) SendPushNotification(ctx context.Context, deviceToken, title, b
 	}
 
 	log.Printf("Successfully sent push notification to %s", deviceToken)
+	return nil
+}
+
+// SendPushNotificationWithSilent sends a push notification with silent option via the push server
+func (s *Server) SendPushNotificationWithSilent(ctx context.Context, deviceToken, title, body string, customData map[string]interface{}, silent bool) error {
+	payload := map[string]interface{}{
+		"device_token": deviceToken,
+		"title":        title,
+		"body":         body,
+		"custom_data":  customData,
+		"silent":       silent,
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal push payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", s.pushURL, bytes.NewBuffer(data))
+	if err != nil {
+		return fmt.Errorf("failed to create push request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.pushClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send push request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("push server returned status %d", resp.StatusCode)
+	}
+
+	log.Printf("Successfully sent %s push notification to %s", map[bool]string{true: "silent", false: "regular"}[silent], deviceToken)
 	return nil
 }
 

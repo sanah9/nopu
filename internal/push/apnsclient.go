@@ -2,7 +2,9 @@ package push
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/sideshow/apns2"
@@ -64,6 +66,14 @@ func (a *APNSClient) PushWithSilent(ctx context.Context, deviceToken, alertTitle
 		return nil, fmt.Errorf("device token is empty")
 	}
 
+	// Log the push notification content
+	pushType := "regular"
+	if silent {
+		pushType = "silent"
+	}
+	log.Printf("Sending APNS %s push - Device: %s, Title: %s, Body: %s, CustomData: %+v",
+		pushType, deviceToken, alertTitle, alertBody, customData)
+
 	var pld *payload.Payload
 	if silent {
 		// Silent push - no alert, just content-available
@@ -71,25 +81,27 @@ func (a *APNSClient) PushWithSilent(ctx context.Context, deviceToken, alertTitle
 	} else {
 		// Regular push with alert
 		pld = payload.NewPayload().AlertTitle(alertTitle).AlertBody(alertBody).Sound("default").ContentAvailable()
-	}
 
-	// extract badge if provided
-	if badgeVal, ok := customData["badge"]; ok {
-		switch b := badgeVal.(type) {
-		case int:
-			pld.Badge(b)
-		case int32:
-			pld.Badge(int(b))
-		case int64:
-			pld.Badge(int(b))
-		case float64:
-			pld.Badge(int(b))
+		// extract badge if provided (only for regular push)
+		if badgeVal, ok := customData["badge"]; ok {
+			switch b := badgeVal.(type) {
+			case int:
+				pld.Badge(b)
+			case int32:
+				pld.Badge(int(b))
+			case int64:
+				pld.Badge(int(b))
+			case float64:
+				pld.Badge(int(b))
+			}
 		}
-		delete(customData, "badge")
-	}
 
-	for k, v := range customData {
-		pld.Custom(k, v)
+		// Add custom data (only for regular push)
+		for k, v := range customData {
+			if k != "badge" { // Skip badge as it's already handled
+				pld.Custom(k, v)
+			}
+		}
 	}
 
 	notif := &apns2.Notification{
@@ -98,11 +110,18 @@ func (a *APNSClient) PushWithSilent(ctx context.Context, deviceToken, alertTitle
 		Payload:     pld,
 		Expiration:  time.Now().Add(24 * time.Hour),
 		Priority:    apns2.PriorityHigh,
+		PushType:    apns2.PushTypeAlert,
 	}
 
-	resp, err := a.client.PushWithContext(ctx, notif)
-	if err != nil {
-		return resp, err
+	// Set priority to low and push type to background for silent push
+	if silent {
+		notif.Priority = apns2.PriorityLow
+		notif.PushType = apns2.PushTypeBackground
 	}
-	return resp, nil
+
+	// Log the final notification payload
+	payloadBytes, _ := json.Marshal(notif.Payload)
+	log.Printf("APNS notification payload: %s", string(payloadBytes))
+
+	return a.client.Push(notif)
 }

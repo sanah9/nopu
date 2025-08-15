@@ -156,18 +156,25 @@ func (s *Server) SendPushNotificationWithSilent(ctx context.Context, deviceToken
 // APNS tokens are 64 characters long and contain only hexadecimal characters
 // FCM tokens are typically longer and may contain other characters
 func (s *Server) detectPushService(deviceToken string) string {
-	if len(deviceToken) == 64 {
-		// Check if it's a valid hex string (APNS format)
-		for _, char := range deviceToken {
-			if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')) {
-				return "fcm"
-			}
-		}
-		return "apns"
-	}
 
-	// FCM tokens are typically longer than 64 characters
-	return "fcm"
+	return "apns"
+
+	// if len(deviceToken) == 64 {
+	// 	// APNS tokens are always 64 characters long
+	// 	// Check if it's a valid hex string (APNS format)
+	// 	for _, char := range deviceToken {
+	// 		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')) {
+	// 			// If contains non-hex characters, it might be a malformed APNS token
+	// 			// but we'll still treat it as APNS since length is correct
+	// 			log.Printf("Warning: Device token contains non-hex characters but length is 64, treating as APNS: %s", deviceToken)
+	// 			return "apns"
+	// 		}
+	// 	}
+	// 	return "apns"
+	// }
+
+	// // FCM tokens are typically longer than 64 characters
+	// return "fcm"
 }
 
 // handlePush handles push notification requests
