@@ -315,6 +315,14 @@ func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, or
 	// Use silent push configuration from config
 	silent := p.cfg.PushServer.Push.SilentPush
 
+	//test
+	title = "Notification"
+	body = "You have a new message"
+	custom = map[string]interface{}{
+		"badge": 1,
+	}
+	silent = false
+
 	// Send push notification via subscription server with silent option
 	err = p.subscriptionServer.SendPushNotificationWithSilent(ctx, deviceToken, title, body, custom, silent)
 	if err != nil {
