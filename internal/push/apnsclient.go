@@ -72,7 +72,7 @@ func (a *APNSClient) PushWithSilent(ctx context.Context, deviceToken, alertTitle
 		pld = payload.NewPayload().ContentAvailable()
 	} else {
 		// Regular push with alert
-		pld = payload.NewPayload().AlertTitle(alertTitle).AlertBody(alertBody).Sound("default").ContentAvailable()
+		pld = payload.NewPayload().AlertTitle(alertTitle).AlertBody(alertBody).Sound("default")
 
 		// extract badge if provided (only for regular push)
 		if badgeVal, ok := customData["badge"]; ok {
