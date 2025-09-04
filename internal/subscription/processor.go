@@ -233,17 +233,7 @@ func (p *Processor) forwardToGroup(ctx context.Context, event *nostr.Event, grou
 
 // isFirstMemberOnline checks if the first member of the group is currently online using presence tracking
 func (p *Processor) isFirstMemberOnline(group *nip29.Group) bool {
-	// Get the actual group from state to ensure we have the latest member information
-	relayGroup, exists := p.state.Groups.Load(group.Address.ID)
-	if !exists {
-		return false
-	}
-
-	for member := range relayGroup.Members {
-		return IsOnline(member)
-	}
-
-	return false
+	return IsOnline(group.Address.ID)
 }
 
 // getShardIndex returns the shard index for a device token
