@@ -373,9 +373,13 @@ func (s *Server) handleEvent(_ context.Context, event *nostr.Event) error {
 func (s *Server) handle20285Event(event *nostr.Event) {
 	var matchingGroups []*nip29.Group
 
+	// Determine which event should be forwarded (original or parsed content)
+	var eventToForward *nostr.Event
+
 	// If content is empty, match against 20285 event itself
 	if event.Content == "" {
 		matchingGroups = s.processor.GetSubscriptionMatcher().GetMatchingGroups(event)
+		eventToForward = event
 	} else {
 		// Parse the original event from content
 		var originalEvent nostr.Event
@@ -386,12 +390,13 @@ func (s *Server) handle20285Event(event *nostr.Event) {
 
 		// Get all matching groups for the original event
 		matchingGroups = s.processor.GetSubscriptionMatcher().GetMatchingGroups(&originalEvent)
+		eventToForward = &originalEvent
 	}
 
-	// Forward 20285 event directly to each matching group
+	// Forward the event (as 20284) to each matching group
 	for _, group := range matchingGroups {
-		if err := s.processor.ForwardToGroupDirect(context.Background(), group, event, event); err != nil {
-			log.Printf("Failed to forward 20285 event %s to group %s: %v",
+		if err := s.processor.ForwardToGroup(context.Background(), eventToForward, group); err != nil {
+			log.Printf("Failed to forward event %s to group %s: %v",
 				event.ID[:8], group.Address.ID, err)
 		}
 	}
