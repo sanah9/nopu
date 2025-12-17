@@ -86,12 +86,13 @@ func (sm *SubscriptionMatcher) parseAndCacheSubscription(groupID string) {
 	filters, subID, err := sm.parseREQFromAbout(group.About)
 	if err != nil {
 		parsed.ParseError = err
+		// Only log errors, not successful parsing to reduce startup log noise
 		log.Printf("Failed to parse REQ for group %s: %v", groupID, err)
 	} else {
 		parsed.Filters = filters
 		parsed.DeviceToken = subID
 	}
-	log.Printf("Parsed REQ for group %s: %v", groupID, parsed)
+	// Removed verbose logging for each group to speed up startup
 	sm.parsedSubscriptions[groupID] = parsed
 }
 

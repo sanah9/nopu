@@ -70,10 +70,14 @@ func NewProcessor(queue *MemoryQueue, relay *khatru.Relay, state *relay29.State,
 func (p *Processor) Start(ctx context.Context) error {
 	log.Println("Starting event processor...")
 
-	// Load all group information on initialization
-	if err := p.loadGroups(ctx); err != nil {
-		log.Printf("Failed to load groups: %v", err)
-	}
+	// Load all group information on initialization (async to avoid blocking startup)
+	go func() {
+		if err := p.loadGroups(ctx); err != nil {
+			log.Printf("Failed to load groups: %v", err)
+		} else {
+			log.Println("Finished loading all groups")
+		}
+	}()
 
 	// Create consumer
 	consumer, err := p.queue.CreateConsumer(ctx, "nopu-processor-1", 1000)
@@ -139,11 +143,18 @@ func (p *Processor) cleanupPushRateLimit() {
 func (p *Processor) loadGroups(_ context.Context) error {
 	// Get all groups from relay29.State
 	groupCount := 0
+	startTime := time.Now()
+
 	p.state.Groups.Range(func(groupID string, group *relay29.Group) bool {
 		p.subscriptionMatcher.AddGroup(groupID)
 		groupCount++
 		return true // continue iteration
 	})
+
+	elapsed := time.Since(startTime)
+	if groupCount > 0 {
+		log.Printf("Loaded %d groups in %v", groupCount, elapsed)
+	}
 
 	return nil
 }
