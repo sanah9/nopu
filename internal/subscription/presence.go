@@ -58,14 +58,27 @@ func SetupPresenceHooks(relay *khatru.Relay) {
 		}
 
 		// Wait until the client completes NIP-42 AUTH, then mark as online.
+		// Add timeout to prevent goroutine leak if client never authenticates
 		go func() {
+			// Set a maximum wait time of 30 seconds for AUTH
+			authTimeout := time.NewTimer(30 * time.Second)
+			defer authTimeout.Stop()
+
 			ticker := time.NewTicker(100 * time.Millisecond)
 			defer ticker.Stop()
+
 			for {
 				select {
 				case <-ctx.Done():
 					return
+				case <-authTimeout.C:
+					// Timeout: client didn't authenticate within 30 seconds, exit goroutine
+					return
 				case <-ticker.C:
+					// Check if connection is still valid
+					if ws == nil {
+						return
+					}
 					if pk := ws.AuthedPublicKey; pk != "" {
 						increment(pk)
 						return

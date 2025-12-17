@@ -319,6 +319,14 @@ func (sm *SubscriptionMatcher) GetGroupCount() int {
 	return len(sm.groupIDs)
 }
 
+// GetParsedSubscription safely gets parsed subscription for a group (thread-safe)
+func (sm *SubscriptionMatcher) GetParsedSubscription(groupID string) (*ParsedGroupSubscription, bool) {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	parsed, ok := sm.parsedSubscriptions[groupID]
+	return parsed, ok
+}
+
 // GetGroup gets a group by ID
 func (sm *SubscriptionMatcher) GetGroup(groupID string) *nip29.Group {
 	sm.mu.RLock()

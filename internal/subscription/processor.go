@@ -253,9 +253,9 @@ func (p *Processor) pushNotification(ctx context.Context, group *nip29.Group, or
 		return
 	}
 
-	// Obtain device token from cached parsed subscription
+	// Obtain device token from cached parsed subscription (thread-safe access)
 	var deviceToken string
-	if parsed, ok := p.subscriptionMatcher.parsedSubscriptions[group.Address.ID]; ok {
+	if parsed, ok := p.subscriptionMatcher.GetParsedSubscription(group.Address.ID); ok {
 		deviceToken = parsed.DeviceToken
 	}
 
