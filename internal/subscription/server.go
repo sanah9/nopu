@@ -120,7 +120,8 @@ type Server struct {
 func NewServer(cfg *config.Config) (*Server, error) {
 	// Initialize LMDB storage
 	db := &lmdb.LMDBBackend{
-		Path: "./data/nopu.lmdb",
+		Path:    "./data/nopu.lmdb",
+		MapSize: cfg.SubscriptionServer.LMDBMapSize,
 	}
 	if err := db.Init(); err != nil {
 		return nil, fmt.Errorf("failed to initialize LMDB: %v", err)

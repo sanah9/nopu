@@ -29,6 +29,8 @@ type SubscriptionServerConfig struct {
 	RelayDescription string `yaml:"relay_description"`
 	Domain           string `yaml:"domain"`
 	RelayPrivateKey  string `yaml:"relay_private_key"`
+	// LMDBMapSize max size in bytes for LMDB data file (preallocated). 0 = eventstore default (~273GB). e.g. 1073741824 for 1GB
+	LMDBMapSize      int64             `yaml:"lmdb_map_size"`
 	// New fields for subscription management
 	MaxSubscriptions int             `yaml:"max_subscriptions"` // Maximum subscriptions per client
 	Listener         *ListenerConfig `yaml:"listener"`          // Listener configuration for Nostr relays (optional)
@@ -99,6 +101,7 @@ func Load() (*Config, error) {
 			RelayDescription: "Self-hostable subscription server for push notifications",
 			Domain:           "localhost:9090",
 			RelayPrivateKey:  "",
+			LMDBMapSize:      20 << 30, // 20GB default (eventstore uses ~273GB when 0)
 			MaxSubscriptions: 100,
 			PushServerURL:    "http://localhost:9091",
 			PushRateLimit:    10 * time.Second, // Default 10 seconds between pushes to same device
@@ -223,6 +226,11 @@ func overrideWithEnv(cfg *Config) {
 	}
 	if relayPrivateKey := os.Getenv("RELAY_PRIVATE_KEY"); relayPrivateKey != "" {
 		cfg.SubscriptionServer.RelayPrivateKey = relayPrivateKey
+	}
+	if s := os.Getenv("LMDB_MAP_SIZE"); s != "" {
+		if n, err := strconv.ParseInt(s, 10, 64); err == nil && n > 0 {
+			cfg.SubscriptionServer.LMDBMapSize = n
+		}
 	}
 	if maxSubscriptions := getEnvInt("MAX_SUBSCRIPTIONS", cfg.SubscriptionServer.MaxSubscriptions); maxSubscriptions != cfg.SubscriptionServer.MaxSubscriptions {
 		cfg.SubscriptionServer.MaxSubscriptions = maxSubscriptions
