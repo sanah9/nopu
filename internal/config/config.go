@@ -46,6 +46,7 @@ type PushServerConfig struct {
 	Port        int        `yaml:"port"`
 	WorkerCount int        `yaml:"worker_count"` // Number of worker goroutines
 	BatchSize   int        `yaml:"batch_size"`   // Batch size for processing messages
+	PublicURL   string     `yaml:"public_url"`   // e.g. "https://push.example.com" — used to build callbackUrl
 	Apns        ApnsConfig `yaml:"apns"`         // APNs push configuration
 	FCM         FCMConfig  `yaml:"fcm"`          // FCM push configuration
 	Push        PushConfig `yaml:"push"`         // Common push configuration
@@ -247,6 +248,9 @@ func overrideWithEnv(cfg *Config) {
 	// Push server configuration
 	if port := getEnvInt("PUSH_SERVER_PORT", cfg.PushServer.Port); port != cfg.PushServer.Port {
 		cfg.PushServer.Port = port
+	}
+	if publicURL := os.Getenv("PUSH_PUBLIC_URL"); publicURL != "" {
+		cfg.PushServer.PublicURL = publicURL
 	}
 	// Removed subscription server URL as push server no longer connects to subscription server
 	if workerCount := getEnvInt("WORKER_COUNT", cfg.PushServer.WorkerCount); workerCount != cfg.PushServer.WorkerCount {

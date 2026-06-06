@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"nopu/internal/config"
 )
@@ -25,6 +29,7 @@ type Server struct {
 	cfg          *config.Config
 	apnsClient   *APNSClient
 	fcmClient    *FCMClient
+	devices      *DeviceStore
 	httpServer   *http.Server
 	shutdownChan chan struct{}
 }
@@ -55,13 +60,19 @@ func NewServer(cfg *config.Config) (*Server, error) {
 		cfg:        cfg,
 		apnsClient: apnsClient,
 		fcmClient:  fcmClient,
+		devices:    newDeviceStore(),
 		httpServer: &http.Server{
 			Addr: fmt.Sprintf(":%d", cfg.PushServer.Port),
 		},
 		shutdownChan: make(chan struct{}),
 	}
 
-	// Set up HTTP handlers
+	// NIP-9a device registry and relay callback endpoints.
+	http.HandleFunc("/push/devices", server.handleDeviceRegister)   // POST
+	http.HandleFunc("/push/devices/", server.handleDeviceDelete)    // DELETE /push/devices/{id}
+	http.HandleFunc("/push/callback/", server.handleRelayCallback)  // POST  /push/callback/{id}
+
+	// Legacy endpoints kept for backward compatibility.
 	http.HandleFunc("/push", server.handlePush)
 	http.HandleFunc("/push/fcm/topic", server.handleFCMTopicPush)
 	http.HandleFunc("/push/fcm/subscribe", server.handleFCMSubscribe)
@@ -344,4 +355,172 @@ func (s *Server) handleFCMUnsubscribe(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+}
+
+// ── NIP-9a device registry ────────────────────────────────────────────────
+
+type registerDeviceRequest struct {
+	Pubkey     string `json:"pubkey"`
+	Platform   string `json:"platform"`
+	TokenType  string `json:"tokenType"`
+	Token      string `json:"token"`
+	DeviceID   string `json:"deviceId"`
+	AppVersion string `json:"appVersion"`
+}
+
+type registerDeviceResponse struct {
+	DeviceRegistrationID string `json:"deviceRegistrationId"`
+	CallbackURL          string `json:"callbackUrl"`
+}
+
+// handleDeviceRegister handles POST /push/devices
+func (s *Server) handleDeviceRegister(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req registerDeviceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Token == "" || req.TokenType == "" {
+		http.Error(w, "token and tokenType are required", http.StatusBadRequest)
+		return
+	}
+
+	id := uuid.New().String()
+	reg := &DeviceRegistration{
+		ID:         id,
+		Pubkey:     req.Pubkey,
+		Platform:   req.Platform,
+		TokenType:  req.TokenType,
+		Token:      req.Token,
+		DeviceID:   req.DeviceID,
+		AppVersion: req.AppVersion,
+		CreatedAt:  time.Now(),
+	}
+	s.devices.Upsert(reg)
+
+	publicURL := strings.TrimRight(s.cfg.PushServer.PublicURL, "/")
+	callbackURL := publicURL + "/push/callback/" + id
+
+	log.Printf("Device registered: id=%s platform=%s tokenType=%s", id, req.Platform, req.TokenType)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(registerDeviceResponse{
+		DeviceRegistrationID: id,
+		CallbackURL:          callbackURL,
+	})
+}
+
+// handleDeviceDelete handles DELETE /push/devices/{id}
+func (s *Server) handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	id := strings.TrimPrefix(r.URL.Path, "/push/devices/")
+	if id == "" {
+		http.Error(w, "device ID is required", http.StatusBadRequest)
+		return
+	}
+
+	s.devices.Delete(id)
+	log.Printf("Device unregistered: id=%s", id)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── NIP-9a relay callback ─────────────────────────────────────────────────
+
+// relayCallbackPayload is the shape sent by NIP-9a relays to the callback URL.
+type relayCallbackPayload struct {
+	Type  string          `json:"type"`
+	ID    string          `json:"id"`
+	Relay string          `json:"relay"`
+	Event json.RawMessage `json:"event"`
+}
+
+// handleRelayCallback handles POST /push/callback/{deviceRegistrationId}
+func (s *Server) handleRelayCallback(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	id := strings.TrimPrefix(r.URL.Path, "/push/callback/")
+	if id == "" {
+		http.Error(w, "device ID is required", http.StatusBadRequest)
+		return
+	}
+
+	reg, ok := s.devices.Get(id)
+	if !ok {
+		// Unknown device — respond 200 so the relay doesn't retry forever.
+		log.Printf("Relay callback for unknown device: %s", id)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 64*1024))
+	if err != nil {
+		http.Error(w, "Failed to read body", http.StatusBadRequest)
+		return
+	}
+
+	var cbPayload relayCallbackPayload
+	if err := json.Unmarshal(body, &cbPayload); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	switch reg.TokenType {
+	case "apns_voip":
+		if s.apnsClient == nil {
+			log.Printf("APNs client not configured, cannot deliver to device %s", id)
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		// Build a flat map so NostrPushPayloadHandler can read top-level keys.
+		var eventRaw interface{}
+		_ = json.Unmarshal(cbPayload.Event, &eventRaw)
+		data := map[string]interface{}{
+			"type":  cbPayload.Type,
+			"id":    cbPayload.ID,
+			"relay": cbPayload.Relay,
+			"event": eventRaw,
+		}
+		resp, err := s.apnsClient.PushVoIP(ctx, reg.Token, data)
+		if err != nil {
+			log.Printf("APNs VoIP push failed for device %s: %v", id, err)
+			http.Error(w, "Push failed", http.StatusInternalServerError)
+			return
+		}
+		if resp != nil && !resp.Sent() {
+			log.Printf("APNs VoIP push rejected for device %s: %s", id, resp.Reason)
+		} else {
+			log.Printf("APNs VoIP push delivered to device %s", id)
+		}
+
+	case "unifiedpush":
+		if err := sendUnifiedPush(ctx, reg.Token, body); err != nil {
+			log.Printf("UnifiedPush delivery failed for device %s: %v", id, err)
+			http.Error(w, "Push failed", http.StatusInternalServerError)
+			return
+		}
+		log.Printf("UnifiedPush delivered to device %s", id)
+
+	default:
+		log.Printf("Unknown tokenType %q for device %s", reg.TokenType, id)
+		http.Error(w, "Unsupported tokenType", http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }

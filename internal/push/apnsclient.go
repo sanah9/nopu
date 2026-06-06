@@ -117,3 +117,31 @@ func (a *APNSClient) PushWithSilent(ctx context.Context, deviceToken, alertTitle
 
 	return a.client.Push(notif)
 }
+
+// PushVoIP sends a VoIP push via the <bundle_id>.voip APNs topic.
+// data is forwarded as custom keys so noscall's NostrPushPayloadHandler can
+// parse the Nostr relay callback payload directly.
+func (a *APNSClient) PushVoIP(ctx context.Context, deviceToken string, data map[string]interface{}) (*apns2.Response, error) {
+	if deviceToken == "" {
+		return nil, fmt.Errorf("device token is empty")
+	}
+
+	pld := payload.NewPayload().ContentAvailable()
+	for k, v := range data {
+		pld.Custom(k, v)
+	}
+
+	notif := &apns2.Notification{
+		DeviceToken: deviceToken,
+		Topic:       a.topic + ".voip",
+		Payload:     pld,
+		Expiration:  time.Now().Add(30 * time.Second),
+		Priority:    apns2.PriorityHigh,
+		PushType:    apns2.PushTypeVOIP,
+	}
+
+	payloadBytes, _ := json.Marshal(notif.Payload)
+	log.Printf("APNS VoIP payload: %s", string(payloadBytes))
+
+	return a.client.Push(notif)
+}
